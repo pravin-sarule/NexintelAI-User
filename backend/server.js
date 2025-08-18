@@ -9,6 +9,7 @@ const fileRoutes = require('./src/routes/fileRoutes');
 const documentRoutes = require('./src/routes/documentRoutes');
 const templateRoutes = require('./src/routes/templateRoutes');
 const chatRoutes = require('./src/routes/chatRoutes');
+const userPlanRoutes = require('./src/routes/userPlan.routes');
 const app = express();
 
 // Middleware
@@ -43,6 +44,7 @@ app.use('/api/files', fileRoutes);
 app.use('/api/doc', documentRoutes);
 app.use('/api/draft', templateRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/plans', userPlanRoutes);
 // Temporary test route - keep this for testing
 app.get('/api/test-route', (req, res) => {
   res.send('Test route is working!');
