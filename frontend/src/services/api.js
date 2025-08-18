@@ -144,6 +144,14 @@ class ApiService {
   }
 
   // ========================
+  // ✅ Subscription Plans APIs
+  // ========================
+  async getPublicPlans(filters = {}) {
+    const query = new URLSearchParams(filters).toString();
+    return this.request(`/plans${query ? `?${query}` : ''}`);
+  }
+
+  // ========================
   // ✅ Chat APIs
   // ========================
   async fetchFileChatHistory(fileId) {
