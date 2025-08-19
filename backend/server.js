@@ -4,11 +4,15 @@ const cookieParser = require('cookie-parser');
 require('dotenv').config({ path: './.env' });
 
 const pool = require('./src/config/db');
+const { createSubscriptionPlansTable, createUserSubscriptionsTable, createPaymentsTable, createTokenUsageLogsTable } = require('./src/models/subscriptionPlanModel');
 const authRoutes = require('./src/routes/authRoutes');
 const fileRoutes = require('./src/routes/fileRoutes');
 const documentRoutes = require('./src/routes/documentRoutes');
 const templateRoutes = require('./src/routes/templateRoutes');
 const chatRoutes = require('./src/routes/chatRoutes');
+const { startCronJobs } = require('./src/utils/cronJobs');
+const paymentRoutes = require('./src/routes/paymentRoutes');
+const adminRoutes = require('./src/routes/adminRoutes');
 const userPlanRoutes = require('./src/routes/userPlan.routes');
 const app = express();
 
@@ -42,7 +46,9 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/doc', documentRoutes);
+app.use('/api/payments', paymentRoutes);
 app.use('/api/draft', templateRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/plans', userPlanRoutes);
 // Temporary test route - keep this for testing
@@ -53,6 +59,19 @@ app.get('/api/test-route', (req, res) => {
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
+  // Initialize database tables
+  (async () => {
+      try {
+          await createSubscriptionPlansTable();
+          await createUserSubscriptionsTable();
+          await createPaymentsTable();
+          await createTokenUsageLogsTable();
+          startCronJobs(); // Start cron jobs after tables are ensured
+      } catch (error) {
+          console.error('Error initializing database tables or starting cron jobs:', error);
+          process.exit(1);
+      }
+  })();
 });
 
 // Graceful shutdown

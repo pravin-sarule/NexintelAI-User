@@ -4,7 +4,7 @@ const router = express.Router();
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 
-const protect = require('../middleware/auth');
+const { protect } = require('../middleware/auth');
 const templateController = require('../controllers/templateController');
 
 // Template routes

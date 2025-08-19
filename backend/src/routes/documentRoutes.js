@@ -38,32 +38,32 @@ const multer = require('multer');
 const router = express.Router();
 
 const controller = require('../controllers/documentController');
-const authenticateToken = require('../middleware/auth');
+const { protect } = require('../middleware/auth');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Upload & processing
-router.post('/upload', authenticateToken, upload.any(), controller.uploadDocument);
+router.post('/upload', protect, upload.any(), controller.uploadDocument);
 
 // Post-processing analytics
-router.post('/analyze', authenticateToken, controller.analyzeDocument);
+router.post('/analyze', protect, controller.analyzeDocument);
 
 // Summarize selected chunks (RAG-efficient)
-router.post('/summary', authenticateToken, controller.getSummary);
+router.post('/summary', protect, controller.getSummary);
 
 // Chat with the document (RAG)
-router.post('/chat', authenticateToken, controller.chatWithDocument);
+router.post('/chat', protect, controller.chatWithDocument);
 
 // Save edited (docx + pdf variants)
-router.post('/save', authenticateToken, controller.saveEditedDocument);
+router.post('/save', protect, controller.saveEditedDocument);
 
 // Download edited variants via signed URL
-router.get('/download/:file_id/:format', authenticateToken, controller.downloadDocument);
+router.get('/download/:file_id/:format', protect, controller.downloadDocument);
 
 // Chat history for a document
-router.get('/chat-history/:file_id', authenticateToken, controller.getChatHistory);
+router.get('/chat-history/:file_id', protect, controller.getChatHistory);
 
 // Processing status
-router.get('/status/:file_id', authenticateToken, controller.getDocumentProcessingStatus);
+router.get('/status/:file_id', protect, controller.getDocumentProcessingStatus);
 
 module.exports = router;
