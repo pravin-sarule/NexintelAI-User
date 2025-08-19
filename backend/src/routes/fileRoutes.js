@@ -48,6 +48,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // File upload routes
 // router.post('/upload', authenticateToken, upload.any(), uploadFile);
+// router.post('/upload', protect, upload.single('file'), uploadFile);
 router.post('/upload', protect, upload.single('file'), uploadFile);
 router.post('/upload-folder', protect, upload.array('files'), uploadFolder);
 router.post('/upload-to-folder', protect, upload.array('files'), uploadToFolder);
@@ -72,3 +73,4 @@ router.post('/:fileId/chat', protect, continueFileChat); // Can now accept sessi
 router.get('/all-chats', protect, getAllUserChats); // New route to get all chats for a user
 
 module.exports = router;
+
