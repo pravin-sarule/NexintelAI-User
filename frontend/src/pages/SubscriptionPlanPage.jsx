@@ -2,9 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { CheckIcon } from '@heroicons/react/20/solid';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import { useNavigate } from 'react-router-dom';
-import PaymentForm from '../components/PaymentForm';
 import apiService from '../services/api'; // Import the apiService
 import { useAuth } from '../context/AuthContext'; // Assuming you have an AuthContext
+
+// Razorpay Configuration (Replace with your actual values)
+const RAZORPAY_KEY_ID = import.meta.env.VITE_APP_RAZORPAY_KEY_ID || 'rzp_test_R6mBF5iIMakFt1'; // Get from environment variables or replace directly
+const BACKEND_BASE_URL = import.meta.env.VITE_APP_API_URL || 'https://nexintelai-user.onrender.com/api';
 
 const SubscriptionPlanPage = () => {
   const navigate = useNavigate();
@@ -13,8 +16,9 @@ const SubscriptionPlanPage = () => {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showPaymentForm, setShowPaymentForm] = useState(false); // State to control payment form visibility
+  const [showPaymentForm, setShowPaymentForm] = useState(false); // State to control payment form visibility (will be removed later)
   const [selectedPlan, setSelectedPlan] = useState(null); // State to store the selected plan
+  const { user, token } = useAuth(); // Get user and token from AuthContext
 
   const fetchPlans = useCallback(async () => {
     setLoading(true);
@@ -47,28 +51,89 @@ const SubscriptionPlanPage = () => {
     navigate(-1); // Go back to the previous page
   };
 
-  const handleSelectPlan = (plan) => {
-    setSelectedPlan(plan);
-    setShowPaymentForm(true);
-  };
-
-  const handleClosePaymentForm = () => {
-    setShowPaymentForm(false);
-    setSelectedPlan(null);
-  };
-
   const handlePaymentSuccess = (planName) => {
-    // Update user's plan in local storage
+    // Update user's plan in local storage (assuming planName is sufficient)
     const userInfo = JSON.parse(localStorage.getItem('userInfo'));
     if (userInfo) {
-      userInfo.plan = planName;
+      userInfo.plan = planName; // Or update with more detailed plan info if available
       localStorage.setItem('userInfo', JSON.stringify(userInfo));
-      // Dispatch a custom event to notify other components (like UserProfileMenu)
-      // that user info has changed. This is a workaround if direct context update isn't feasible.
       window.dispatchEvent(new CustomEvent('userInfoUpdated'));
     }
-    // Optionally, navigate away or show a success message
     navigate('/dashboard'); // Redirect to dashboard after successful payment
+  };
+
+  const handleSelectPlan = async (plan) => {
+    if (!token) {
+      setError('You must be logged in to subscribe to a plan.');
+      navigate('/login'); // Redirect to login page
+      return;
+    }
+
+    setSelectedPlan(plan);
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/payments/order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ planId: plan.id })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to create Razorpay order.');
+      }
+
+      const order = data.order;
+      const razorpaySubscription = data.razorpaySubscription;
+
+      const options = {
+        key: RAZORPAY_KEY_ID,
+        subscription_id: razorpaySubscription.id,
+        name: "NexintelAI Subscriptions",
+        description: plan.name,
+        image: "/src/assets/nexintel.jpg", // Replace with your actual logo path
+        handler: function (response) {
+          console.log('Razorpay payment successful:', response);
+          alert('Payment successful! Your subscription is now active.');
+          handlePaymentSuccess(plan.name); // Call your success handler
+        },
+        prefill: {
+          name: user?.name || '',
+          email: user?.email || '',
+          contact: user?.contact || '' // Assuming user object has contact
+        },
+        notes: {
+          user_id: user?.id || '',
+          plan_id: plan.id
+        },
+        theme: {
+          "color": "#1a202c" // Tailwind's gray-900
+        }
+      };
+
+      const rzp = new window.Razorpay(options);
+
+      rzp.on('payment.failed', function (response) {
+        alert(`Payment Failed: ${response.error.description || 'Unknown error'}`);
+        console.error('Razorpay payment failed:', response.error);
+        setError(`Payment failed: ${response.error.description || 'Unknown error'}`);
+      });
+
+      rzp.open();
+
+    } catch (err) {
+      const errorMessage = err.message || 'An unexpected error occurred during the subscription process.';
+      setError(errorMessage);
+      console.error('Error during subscription process:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -227,13 +292,7 @@ const SubscriptionPlanPage = () => {
 
       </div>
 
-      {showPaymentForm && selectedPlan && (
-        <PaymentForm
-          plan={selectedPlan}
-          onClose={handleClosePaymentForm}
-          onPaymentSuccess={handlePaymentSuccess}
-        />
-      )}
+      {/* PaymentForm is no longer directly used here as Razorpay Checkout handles the UI */}
     </div>
   );
 };

@@ -2138,7 +2138,7 @@ const RichTextEditor = ({
   const [pageContents, setPageContents] = useState(['']);
 
   // Mock API key for demo - in real app, this should come from environment variables
-  const GEMINI_API_KEY = 'demo-key-for-ui-demo';
+  const GEMINI_API_KEY = 'AIzaSyCK7KbeHityDSFGP3SLwYApHSdnp-KMUcw';
 
   const splitContentIntoPages = (content) => {
     if (!content || content === '<br>') return [''];

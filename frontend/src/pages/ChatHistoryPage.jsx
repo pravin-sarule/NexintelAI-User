@@ -79,7 +79,7 @@ const ChatHistoryPage = () => {
           return;
         }
 
-        const response = await axios.get('http://localhost:3000/api/chat', {
+        const response = await axios.get('https://nexintelai-user.onrender.com/api/chat', {
           headers: {
             Authorization: `Bearer ${token}`,
           },

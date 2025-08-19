@@ -4,16 +4,19 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token')); // Initialize token from localStorage
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Here you would typically check for a token in localStorage or a cookie
     // and validate it with your backend to determine if the user is authenticated.
     // For now, we'll simulate a loaded state.
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      // In a real app, decode token or verify with backend
-      setUser({ username: 'testuser' }); // Placeholder user
+    const storedToken = localStorage.getItem('token');
+    if (storedToken) {
+      setToken(storedToken);
+      // In a real app, you would decode the token or verify it with your backend
+      // to get actual user data. For now, we'll use a placeholder.
+      setUser({ id: '123', name: 'Authenticated User', email: 'user@example.com', contact: '1234567890' }); // Placeholder user with more details
     }
     setLoading(false);
   }, []);
@@ -22,11 +25,14 @@ export const AuthProvider = ({ children }) => {
     // Simulate API call
     return new Promise((resolve) => {
       setTimeout(() => {
-        if (email === 'test@example.com' && password === 'password') {
-          const userData = { username: 'testuser', email };
+        if (email === 'test@example.com' && password === 'password') { // Replace with actual authentication logic
+          const newToken = 'dummy-jwt-token'; // Replace with actual JWT from backend
+          const userData = { id: '123', name: 'Test User', email: 'test@example.com', contact: '9876543210' }; // Replace with actual user data from backend
+          setToken(newToken);
           setUser(userData);
-          localStorage.setItem('authToken', 'dummy-token');
-          resolve({ success: true, user: userData });
+          localStorage.setItem('token', newToken);
+          localStorage.setItem('user', JSON.stringify(userData)); // Store user data
+          resolve({ success: true, user: userData, token: newToken });
         } else {
           resolve({ success: false, message: 'Invalid credentials' });
         }
@@ -36,11 +42,13 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('authToken');
+    setToken(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
