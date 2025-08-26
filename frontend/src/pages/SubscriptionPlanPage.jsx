@@ -1377,7 +1377,7 @@ import { useAuth } from '../context/AuthContext';
 
 // Razorpay Configuration
 const RAZORPAY_KEY_ID = import.meta.env.VITE_APP_RAZORPAY_KEY_ID || 'rzp_test_R6mBF5iIMakFt1';
-const BACKEND_BASE_URL = import.meta.env.VITE_APP_API_URL || 'https://nexintelai-user.onrender.com/api';
+const BACKEND_BASE_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:3000/api';
 
 console.log('Environment variables:', { RAZORPAY_KEY_ID, BACKEND_BASE_URL });
 

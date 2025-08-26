@@ -74,7 +74,7 @@ const AnalysisPage = () => {
   const dropdownRef = useRef(null);
 
   // API Configuration
-  const API_BASE_URL = 'https://nexintelai-user.onrender.com/api';
+  const API_BASE_URL = 'http://localhost:3000/api';
   
   // Get auth token with comprehensive fallback options
   const getAuthToken = () => {

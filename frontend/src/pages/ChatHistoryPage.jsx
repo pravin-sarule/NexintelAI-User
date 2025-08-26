@@ -191,7 +191,7 @@ const ChatHistoryPage = () => {
           return;
         }
 
-        const response = await fetch('https://nexintelai-user.onrender.com/api/chat', {
+        const response = await fetch('http://localhost:3000/api/chat', {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',

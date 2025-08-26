@@ -392,7 +392,7 @@ const GetHelpPage = () => {
         formPayload.append("attachment", formData.attachment);
       }
 
-      const response = await fetch("https://nexintelai-user.onrender.com/api/support", {
+      const response = await fetch("http://localhost:3000/api/support", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,

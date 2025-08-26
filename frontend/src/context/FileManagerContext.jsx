@@ -471,7 +471,7 @@ import React, { createContext, useState, useEffect, useRef, useCallback, useCont
 import { useNavigate } from 'react-router-dom';
 
 // Base API URL (should ideally come from a config file or .env)
-const API_BASE = 'https://nexintelai-user.onrender.com/api';
+const API_BASE = 'http://localhost:3000/api';
 
 // In-memory token storage (since localStorage/sessionStorage not supported in artifacts)
 // Get auth token (adjust based on your auth implementation)

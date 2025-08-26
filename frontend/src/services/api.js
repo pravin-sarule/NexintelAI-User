@@ -1,5 +1,5 @@
 // src/services/api.js
-const API_BASE_URL = import.meta.env.VITE_APP_API_URL || 'https://nexintelai-user.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:3000/api';
 
 class ApiService {
   constructor() {
@@ -68,6 +68,29 @@ class ApiService {
     window.dispatchEvent(new Event('userUpdated'));
     // No API call is made as per user's request
     return { message: "Logged out successfully locally" };
+  }
+
+  async updateProfile(userData) {
+    return this.request('/auth/update', {
+      method: 'PUT',
+      body: JSON.stringify(userData),
+    });
+  }
+
+  async deleteAccount() {
+    return this.request('/auth/delete', {
+      method: 'DELETE',
+    });
+  }
+
+  async logoutUser() { // Renamed to avoid conflict with local logout
+    return this.request('/auth/logout', {
+      method: 'POST',
+    });
+  }
+
+  async fetchProfile() {
+    return this.request('/auth/profile');
   }
 
   // ========================

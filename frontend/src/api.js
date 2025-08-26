@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: 'https://nexintelai-user.onrender.com/api', // Adjust if your backend runs on a different port
+  baseURL: 'http://localhost:3000/api', // Adjust if your backend runs on a different port
   withCredentials: true,
 });
 
