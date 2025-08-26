@@ -1,37 +1,4 @@
-// const pool = require('../db');
 
-// const DocumentModel = {
-
-//   async getFileById(documentId) {
-//     const res = await pool.query(`SELECT * FROM user_files WHERE id = $1`, [documentId]);
-//     return res.rows[0];
-//   },
-
-//   async saveEditedVersions(documentId, docxUrl, pdfUrl) {
-//     await pool.query(`
-//       UPDATE user_files
-//       SET edited_docx_path = $1, edited_pdf_path = $2
-//       WHERE id = $3
-//     `, [docxUrl, pdfUrl, documentId]);
-//   },
-
-//   async saveChat(documentId, question, answer) {
-//     await pool.query(`
-//       INSERT INTO chat_history (document_id, question, answer)
-//       VALUES ($1, $2, $3)
-//     `, [documentId, question, answer]);
-//   },
-
-//   async getChatHistory(documentId) {
-//     const res = await pool.query(`
-//       SELECT question, answer FROM chat_history
-//       WHERE document_id = $1
-//     `, [documentId]);
-//     return res.rows;
-//   }
-// };
-
-// module.exports = DocumentModel;
 
 const pool = require('../config/db');
 
@@ -105,3 +72,7 @@ const DocumentModel = {
 };
 
 module.exports = DocumentModel;
+
+
+
+

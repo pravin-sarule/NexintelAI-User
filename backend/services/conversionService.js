@@ -1,19 +1,3 @@
-// const htmlDocx = require('html-docx-js');
-// const puppeteer = require('puppeteer');
-
-// exports.convertHtmlToDocx = async (html) => {
-//   const buffer = htmlDocx.asBlob(html);
-//   return Buffer.from(buffer);
-// };
-
-// exports.convertHtmlToPdf = async (html) => {
-//   const browser = await puppeteer.launch();
-//   const page = await browser.newPage();
-//   await page.setContent(html);
-//   const pdfBuffer = await page.pdf({ format: 'A4' });
-//   await browser.close();
-//   return pdfBuffer;
-// };
 
 const htmlDocx = require('html-docx-js');
 const puppeteer = require('puppeteer');
