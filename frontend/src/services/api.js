@@ -1,5 +1,5 @@
 // src/services/api.js
-const API_BASE_URL = import.meta.env.VITE_APP_API_URL || 'https://nexintelai-user.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:3000/api';
 
 class ApiService {
   constructor() {
@@ -146,9 +146,26 @@ class ApiService {
   // ========================
   // ✅ Subscription Plans APIs
   // ========================
-  async getPublicPlans(filters = {}) {
-    const query = new URLSearchParams(filters).toString();
-    return this.request(`/plans${query ? `?${query}` : ''}`);
+  async getPublicPlans() {
+    return this.request(`/plans`);
+  }
+
+  async startSubscription(plan_id) {
+    return this.request('/payments/subscription/start', {
+      method: 'POST',
+      body: JSON.stringify({ plan_id }),
+    });
+  }
+
+  async verifySubscription(paymentData) {
+    return this.request('/payments/subscription/verify', {
+      method: 'POST',
+      body: JSON.stringify(paymentData), // Send as JSON
+    });
+  }
+
+  async getPaymentPlans() {
+    return this.request(`/payments/plans`);
   }
 
   // ========================

@@ -6,7 +6,7 @@ const TemplateSelector = ({ onSelectTemplate, selectedTemplateId, showToast }) =
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const API_BASE = 'https://nexintelai-user.onrender.com/api';
+  const API_BASE = 'http://localhost:3000/api';
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');

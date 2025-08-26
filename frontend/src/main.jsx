@@ -2,12 +2,15 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.jsx';
-import { AuthProvider } from './context/AuthContext.jsx'; // Import AuthProvider
+import { AuthProvider } from './context/AuthContext.jsx';
+import { ThemeProvider } from './context/ThemeContext.jsx'; // Import ThemeProvider
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <AuthProvider> {/* Wrap App with AuthProvider */}
-      <App />
+    <AuthProvider>
+      <ThemeProvider> {/* Wrap App with ThemeProvider */}
+        <App />
+      </ThemeProvider>
     </AuthProvider>
   </StrictMode>,
 );

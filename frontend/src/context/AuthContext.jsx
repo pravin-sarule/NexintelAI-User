@@ -4,36 +4,54 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token')); // Initialize token from localStorage
+  const [token, setToken] = useState(() => {
+    const storedToken = localStorage.getItem('token');
+    console.log('AuthContext: Initializing token from localStorage:', storedToken);
+    return storedToken;
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Here you would typically check for a token in localStorage or a cookie
-    // and validate it with your backend to determine if the user is authenticated.
-    // For now, we'll simulate a loaded state.
     const storedToken = localStorage.getItem('token');
-    if (storedToken) {
+    console.log('AuthContext: useEffect - storedToken:', storedToken);
+    if (storedToken && storedToken !== token) { // Only update if different to avoid infinite loops
       setToken(storedToken);
       // In a real app, you would decode the token or verify it with your backend
-      // to get actual user data. For now, we'll use a placeholder.
-      setUser({ id: '123', name: 'Authenticated User', email: 'user@example.com', contact: '1234567890' }); // Placeholder user with more details
+      // to get actual user data.
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        try {
+          setUser(JSON.parse(storedUser));
+        } catch (e) {
+          console.error('AuthContext: Failed to parse user from localStorage', e);
+          setUser(null);
+          localStorage.removeItem('user');
+        }
+      } else {
+        setUser(null);
+      }
+    } else if (!storedToken && token) {
+      // If token was in state but not in localStorage, clear state
+      setToken(null);
+      setUser(null);
     }
     setLoading(false);
-  }, []);
+  }, [token]); // Depend on token to react to external changes
 
   const login = async (email, password) => {
-    // Simulate API call
     return new Promise((resolve) => {
       setTimeout(() => {
-        if (email === 'test@example.com' && password === 'password') { // Replace with actual authentication logic
-          const newToken = 'dummy-jwt-token'; // Replace with actual JWT from backend
-          const userData = { id: '123', name: 'Test User', email: 'test@example.com', contact: '9876543210' }; // Replace with actual user data from backend
+        if (email === 'test@example.com' && password === 'password') {
+          const newToken = 'dummy-jwt-token';
+          const userData = { id: '123', name: 'Test User', email: 'test@example.com', contact: '9876543210' };
           setToken(newToken);
           setUser(userData);
           localStorage.setItem('token', newToken);
-          localStorage.setItem('user', JSON.stringify(userData)); // Store user data
+          localStorage.setItem('user', JSON.stringify(userData));
+          console.log('AuthContext: Login successful, new token set:', newToken);
           resolve({ success: true, user: userData, token: newToken });
         } else {
+          console.log('AuthContext: Login failed for email:', email);
           resolve({ success: false, message: 'Invalid credentials' });
         }
       }, 1000);
@@ -45,6 +63,7 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    console.log('AuthContext: User logged out, token cleared.');
   };
 
   return (

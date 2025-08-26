@@ -19,7 +19,10 @@ import ServicesPage from './pages/ServicesPage';
 import AboutUsPage from './pages/AboutUsPage';
 import PricingPage from './pages/PricingPage';
 import AboutNexintelPage from './pages/AboutNexintelPage';
-import SubscriptionPlanPage from './pages/SubscriptionPlanPage'; // New import
+import SubscriptionPlanPage from './pages/SubscriptionPlanPage';
+import BillingAndUsagePage from './pages/BillingAndUsagePage'; // New import
+import SettingsPage from './pages/SettingsPage'; // New import for SettingsPage
+import GetHelpPage from './pages/GetHelpPage'; // New import for GetHelpPage
 import { SidebarProvider } from './context/SidebarContext';
 import { FileManagerProvider } from './context/FileManagerContext';
 import AuthChecker from './components/AuthChecker'; // New import
@@ -129,8 +132,38 @@ function App() {
                 </AuthChecker>
               }
             />
+            <Route
+              path="/billing-usage"
+              element={
+                <AuthChecker>
+                  <MainLayout>
+                    <BillingAndUsagePage />
+                  </MainLayout>
+                </AuthChecker>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <AuthChecker>
+                  <MainLayout>
+                    <SettingsPage />
+                  </MainLayout>
+                </AuthChecker>
+              }
+            />
+            <Route
+              path="/get-help"
+              element={
+                <AuthChecker>
+                  <MainLayout>
+                    <GetHelpPage />
+                  </MainLayout>
+                </AuthChecker>
+              }
+            />
           </Routes>
-        </FileManagerProvider> {/* Close FileManagerProvider */}
+        </FileManagerProvider>
       </SidebarProvider>
     </Router>
   );

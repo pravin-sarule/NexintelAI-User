@@ -97,7 +97,6 @@
 //     };
 
 //     window.addEventListener('storage', handleStorageChange);
-
 //     // Cleanup
 //     return () => {
 //       window.removeEventListener('userUpdated', handleUserUpdate);
@@ -130,7 +129,7 @@
 //             <div className="text-sm font-semibold text-slate-700">
 //               Advocate {user.first_name} {user.last_name}
 //             </div>
-//             <div className="text-xs text-slate-500">{user.email}</div>
+//             <div className="text-xs text-slate-500">Mumbai High Court</div>
 //           </div>
 //         ) : (
 //           <div className="text-right">
@@ -225,116 +224,116 @@
 // };
 
 // export default Header;
-// import React, { useEffect, useState, useRef } from 'react';
-// import { Bars3Icon, UserCircleIcon } from '@heroicons/react/24/outline';
-// import { useNavigate } from 'react-router-dom';
-// import apiService from '../services/api'; // Import the apiService
+import React, { useEffect, useState, useRef } from 'react';
+import { Bars3Icon, UserCircleIcon } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
+import apiService from '../services/api'; // Import the apiService
 
-// const Header = () => {
-//   const [user, setUser] = useState(null);
-//   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-//   const dropdownRef = useRef(null);
-//   const navigate = useNavigate();
+const Header = () => {
+  const [user, setUser] = useState(null);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+  const navigate = useNavigate();
 
-//   useEffect(() => {
-//     const loadUser = () => {
-//       try {
-//         const userData = localStorage.getItem('user');
-//         if (userData) {
-//           setUser(JSON.parse(userData));
-//         } else {
-//           setUser(null);
-//         }
-//       } catch (err) {
-//         console.error('Error parsing user from localStorage:', err);
-//         setUser(null);
-//       }
-//     };
+  useEffect(() => {
+    const loadUser = () => {
+      try {
+        const userData = localStorage.getItem('user');
+        if (userData) {
+          setUser(JSON.parse(userData));
+        } else {
+          setUser(null);
+        }
+      } catch (err) {
+        console.error('Error parsing user from localStorage:', err);
+        setUser(null);
+      }
+    };
 
-//     loadUser();
+    loadUser();
 
-//     window.addEventListener('userUpdated', loadUser);
-//     return () => window.removeEventListener('userUpdated', loadUser);
-//   }, []);
+    window.addEventListener('userUpdated', loadUser);
+    return () => window.removeEventListener('userUpdated', loadUser);
+  }, []);
 
-//   useEffect(() => {
-//     const handleClickOutside = (event) => {
-//       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-//         setIsDropdownOpen(false);
-//       }
-//     };
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsDropdownOpen(false);
+      }
+    };
 
-//     document.addEventListener('mousedown', handleClickOutside);
-//     return () => {
-//       document.removeEventListener('mousedown', handleClickOutside);
-//     };
-//   }, []);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
-//   const handleLogout = async () => {
-//     try {
-//       await apiService.logout();
-//       navigate('/login'); // Redirect to login page after successful logout
-//     } catch (error) {
-//       console.error('Logout failed:', error);
-//       // Display user-friendly error message
-//       alert(`Logout failed: ${error.message || 'Please try again.'}`);
-//       // Even if API call fails, if it's due to invalid token, we should still clear local storage and redirect
-//       if (error.message.includes('Session expired') || error.message.includes('401') || error.message.includes('403')) {
-//         localStorage.removeItem('token');
-//         localStorage.removeItem('user');
-//         window.dispatchEvent(new Event('userUpdated'));
-//         navigate('/login');
-//       }
-//     } finally {
-//       setIsDropdownOpen(false); // Close dropdown regardless of success or failure
-//     }
-//   };
+  const handleLogout = async () => {
+    try {
+      await apiService.logout();
+      navigate('/login'); // Redirect to login page after successful logout
+    } catch (error) {
+      console.error('Logout failed:', error);
+      // Display user-friendly error message
+      alert(`Logout failed: ${error.message || 'Please try again.'}`);
+      // Even if API call fails, if it's due to invalid token, we should still clear local storage and redirect
+      if (error.message.includes('Session expired') || error.message.includes('401') || error.message.includes('403')) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.dispatchEvent(new Event('userUpdated'));
+        navigate('/login');
+      }
+    } finally {
+      setIsDropdownOpen(false); // Close dropdown regardless of success or failure
+    }
+  };
 
-//   return (
-//     <div className="p-4 border-b border-gray-200 flex items-center justify-end bg-white">
-//       <div className="flex items-center space-x-4">
-//         {user ? (
-//           <div className="text-right">
-//             <div className="text-sm font-semibold text-slate-700">
-//               {user.first_name || ''} {user.last_name || ''}
-//             </div>
-//             <div className="text-xs text-slate-500">{user.email}</div>
-//           </div>
-//         ) : (
-//           <div className="text-right">
-//             <div className="text-sm text-slate-400">Not logged in</div>
-//           </div>
-//         )}
+  return (
+    <div className="p-4 border-b border-gray-200 flex items-center justify-end bg-white">
+      <div className="flex items-center space-x-4">
+        {user ? (
+          <div className="text-right">
+            <div className="text-sm font-semibold text-slate-700">
+              {user.first_name || ''} {user.last_name || ''}
+            </div>
+            <div className="text-xs text-slate-500">{user.email}</div>
+          </div>
+        ) : (
+          <div className="text-right">
+            <div className="text-sm text-slate-400">Not logged in</div>
+          </div>
+        )}
 
-//         <div className="relative" ref={dropdownRef}>
-//           <button
-//             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-//             className="focus:outline-none"
-//           >
-//             <UserCircleIcon className="h-10 w-10 text-slate-500" />
-//             {user && (
-//               <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-400 ring-2 ring-white" />
-//             )}
-//           </button>
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            className="focus:outline-none"
+          >
+            <UserCircleIcon className="h-10 w-10 text-slate-500" />
+            {user && (
+              <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-400 ring-2 ring-white" />
+            )}
+          </button>
 
-//           {isDropdownOpen && (
-//             <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
-//               <button
-//                 onClick={handleLogout}
-//                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-//               >
-//                 Logout
-//               </button>
-//             </div>
-//           )}
-//         </div>
+          {isDropdownOpen && (
+            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
+              <button
+                onClick={handleLogout}
+                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Logout
+              </button>
+            </div>
+          )}
+        </div>
 
-//         <button className="md:hidden bg-gray-100 p-2 rounded-lg">
-//           <Bars3Icon className="h-6 w-6 text-gray-600" />
-//         </button>
-//       </div>
-//     </div>
-//   );
-// };
+        <button className="md:hidden bg-gray-100 p-2 rounded-lg">
+          <Bars3Icon className="h-6 w-6 text-gray-600" />
+        </button>
+      </div>
+    </div>
+  );
+};
 
-// export default Header;
+export default Header;
