@@ -296,7 +296,7 @@ import { useAuth } from '../context/AuthContext'; // Assuming you have an AuthCo
 
 // Razorpay Configuration (Replace with your actual values)
 const RAZORPAY_KEY_ID = import.meta.env.VITE_APP_RAZORPAY_KEY_ID || 'rzp_test_R6mBF5iIMakFt1'; // Get from environment variables or replace directly
-const BACKEND_BASE_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:3000/api';
+const BACKEND_BASE_URL = import.meta.env.VITE_APP_API_URL || 'https://nexintelai-user.onrender.com/api';
 
 const PricingPage = () => {
   console.log('SubscriptionPlanPage component rendered.');
