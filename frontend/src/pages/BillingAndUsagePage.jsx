@@ -136,7 +136,7 @@ const BillingAndUsagePage = () => {
   const getTransactionAmountDisplay = (transaction) => {
     // For payment history, amount is in smallest unit, so divide by 100
     if (transaction.amount) {
-      return formatCurrency(parseFloat(transaction.amount) / 100 || 0, transaction.currency || 'INR');
+      return formatCurrency(parseFloat(transaction.amount) || 0, transaction.currency || 'INR');
     }
     return 'N/A'; 
   };
@@ -152,13 +152,13 @@ const BillingAndUsagePage = () => {
     ];
     
     const csvRows = transactions.map(transaction => {
-      const description = transaction.description || transaction.plan || 'Subscription Payment'; // Assuming payment history items are always payments
+      const description = transaction.plan_name || 'Subscription Payment'; // Use plan_name for description
       const amountDisplay = getTransactionAmountDisplay(transaction);
       const currency = transaction.currency || 'INR';
-      const status = transaction.status || 'Completed';
+      const status = transaction.payment_status || 'N/A'; // Use payment_status
       const paymentMethod = transaction.payment_method || 'N/A';
-      const invoiceNumber = transaction.razorpay_order_id || `INV-${transaction.id}`; // Use razorpay_order_id as invoice number
-      const type = transaction.type || 'payment'; // Assuming payment history items are always payments
+      const invoiceNumber = transaction.razorpay_payment_id || transaction.payment_id || 'N/A'; // Use razorpay_payment_id or payment_id for invoice
+      const type = 'payment'; // Assuming payment history items are always payments
 
       return [
         formatDate(transaction.payment_date || transaction.transaction_date), // Use payment_date for payment history
@@ -170,8 +170,8 @@ const BillingAndUsagePage = () => {
         invoiceNumber,
         type,
         transaction.razorpay_payment_id || 'N/A',
-        transaction.razorpay_order_id || 'N/A',
-        transaction.subscription_id || 'N/A'
+        transaction.razorpay_order_id || 'N/A', // Keep razorpay_order_id for completeness if available
+        transaction.user_subscription_id || 'N/A' // Use user_subscription_id
       ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
     });
 
@@ -198,72 +198,63 @@ const BillingAndUsagePage = () => {
     const paymentMethodDisplay = transaction.payment_method || 'N/A';
 
     const receiptHtml = `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; max-width: 700px; margin: auto; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #2c3e50; font-size: 32px; margin-bottom: 10px;">NexintelAI</h1>
-          <p style="color: #7f8c8d; font-size: 16px;">Payment Receipt</p>
+      <div style="font-family: 'Arial', sans-serif; padding: 40px; max-width: 750px; margin: auto; border: 1px solid #cccccc; border-radius: 10px; background-color: #f9f9f9; box-shadow: 0 8px 20px rgba(0,0,0,0.1);">
+        <div style="text-align: center; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 2px solid #333333;">
+          <img src="https://www.nexintelai.com/assets/img/Ai%20logo-01.png" alt="NexintelAI Logo" style="width: 180px; margin-bottom: 20px;"/>
+          <h1 style="color: #333333; font-size: 32px; margin: 0;">OFFICIAL PAYMENT RECEIPT</h1>
+          <p style="color: #666666; font-size: 16px; margin-top: 10px;">Thank you for your recent payment.</p>
         </div>
         
-        <div style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px;">
-          <table style="width: 100%; border-collapse: collapse;">
+        <div style="margin-bottom: 30px;">
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
             <tr>
-              <td style="padding: 8px 0; color: #555; width: 40%;"><strong>Transaction ID:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${transaction.id || transaction.razorpay_payment_id || 'N/A'}</td>
+              <td style="padding: 10px 0; color: #555; width: 40%; font-weight: bold;">Receipt Number:</td>
+              <td style="padding: 10px 0; color: #333;">${transaction.razorpay_payment_id || transaction.payment_id || 'N/A'}</td>
             </tr>
             <tr>
-              <td style="padding: 8px 0; color: #555;"><strong>Date:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${formatDate(transaction.payment_date || transaction.transaction_date)}</td>
+              <td style="padding: 10px 0; color: #555; font-weight: bold;">Date:</td>
+              <td style="padding: 10px 0; color: #333;">${formatDate(transaction.payment_date || transaction.transaction_date)}</td>
             </tr>
             <tr>
-              <td style="padding: 8px 0; color: #555;"><strong>Description:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${transaction.description || transaction.plan || 'Subscription Payment'}</td>
+              <td style="padding: 10px 0; color: #555; font-weight: bold;">Description:</td>
+              <td style="padding: 10px 0; color: #333;">${transaction.plan_name || 'Subscription Payment'}</td>
             </tr>
             <tr>
-              <td style="padding: 8px 0; color: #555;"><strong>Payment Method:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${paymentMethodDisplay}</td>
+              <td style="padding: 10px 0; color: #555; font-weight: bold;">Payment Method:</td>
+              <td style="padding: 10px 0; color: #333;">${paymentMethodDisplay}</td>
             </tr>
             <tr>
-              <td style="padding: 8px 0; color: #555;"><strong>Invoice Number:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${transaction.razorpay_order_id || `INV-${transaction.id}`}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; color: #555;"><strong>Transaction Type:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${transaction.type || 'payment'}</td>
+              <td style="padding: 10px 0; color: #555; font-weight: bold;">Payment Status:</td>
+              <td style="padding: 10px 0; color: #333;">${transaction.payment_status || 'N/A'}</td>
             </tr>
             ${transaction.razorpay_payment_id ? `
             <tr>
-              <td style="padding: 8px 0; color: #555;"><strong>Razorpay Payment ID:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${transaction.razorpay_payment_id}</td>
+              <td style="padding: 10px 0; color: #555; font-weight: bold;">Razorpay Payment ID:</td>
+              <td style="padding: 10px 0; color: #333;">${transaction.razorpay_payment_id}</td>
             </tr>
             ` : ''}
             ${transaction.razorpay_order_id ? `
             <tr>
-              <td style="padding: 8px 0; color: #555;"><strong>Razorpay Order ID:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${transaction.razorpay_order_id}</td>
+              <td style="padding: 10px 0; color: #555; font-weight: bold;">Razorpay Order ID:</td>
+              <td style="padding: 10px 0; color: #333;">${transaction.razorpay_order_id}</td>
             </tr>
             ` : ''}
-            ${transaction.subscription_id ? `
+            ${transaction.user_subscription_id ? `
             <tr>
-              <td style="padding: 8px 0; color: #555;"><strong>Subscription ID:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${transaction.subscription_id}</td>
-            </tr>
-            ` : ''}
-            ${transaction.payment_date ? `
-            <tr>
-              <td style="padding: 8px 0; color: #555;"><strong>Payment Date:</strong></td>
-              <td style="padding: 8px 0; color: #333;">${formatDate(transaction.payment_date)}</td>
+              <td style="padding: 10px 0; color: #555; font-weight: bold;">Subscription ID:</td>
+              <td style="padding: 10px 0; color: #333;">${transaction.user_subscription_id}</td>
             </tr>
             ` : ''}
           </table>
         </div>
 
-        <div style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px; text-align: right;">
-          <p style="font-size: 20px; color: #2c3e50; margin: 0;"><strong>Total Amount:</strong> ${amountDisplay}</p>
-          <p style="font-size: 16px; color: #27ae60; margin-top: 5px;"><strong>Status:</strong> ${transaction.status || 'Completed'}</p>
+        <div style="border-top: 2px solid #333333; padding-top: 25px; margin-top: 30px; text-align: right;">
+          <p style="font-size: 24px; color: #333333; margin: 0;"><strong>TOTAL PAID:</strong> ${amountDisplay}</p>
+          <p style="font-size: 16px; color: #28a745; margin-top: 10px;"><strong>Payment Status:</strong> ${transaction.payment_status || 'N/A'}</p>
         </div>
         
-        <p style="text-align: center; margin-top: 40px; color: #7f8c8d; font-size: 14px;">Thank you for your business!</p>
-        <p style="text-align: center; color: #95a5a6; font-size: 12px;">Generated on ${formatDate(new Date())}</p>
+        <p style="text-align: center; margin-top: 50px; color: #888888; font-size: 13px;">This is an electronically generated receipt and does not require a signature.</p>
+        <p style="text-align: center; color: #aaaaaa; font-size: 12px;">Generated on ${formatDate(new Date())}</p>
       </div>
     `;
 
@@ -271,7 +262,7 @@ const BillingAndUsagePage = () => {
       margin: 1,
       filename: `receipt_${transaction.id || transaction.razorpay_payment_id || 'unknown'}.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2 },
+      html2canvas: { scale: 2, useCORS: true }, // Added useCORS: true
       jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
     }).save();
   };
@@ -624,27 +615,27 @@ const BillingAndUsagePage = () => {
                                 {formatDate(transaction.payment_date || transaction.transaction_date)}
                               </td>
                               <td className="px-8 py-6 text-base text-gray-900 font-semibold">
-                                {transaction.description || transaction.plan || 'Subscription Payment'}
+                                {transaction.plan_name || 'Subscription Payment'}
                               </td>
                               <td className="px-8 py-6 whitespace-nowrap text-base text-gray-700 text-right font-medium">
                                 {getTransactionAmountDisplay(transaction)}
                               </td>
                               <td className="px-8 py-6 whitespace-nowrap text-center">
                                 <span className={`px-3 py-1 text-sm font-bold rounded ${
-                                  transaction.status === 'Paid' || transaction.status === 'captured'
+                                  transaction.payment_status === 'captured'
                                     ? 'bg-green-100 text-green-800'
-                                    : transaction.status === 'pending' || transaction.status === 'processing' || transaction.status === 'authorized'
+                                    : transaction.payment_status === 'pending' || transaction.payment_status === 'authorized'
                                     ? 'bg-yellow-100 text-yellow-800'
                                     : 'bg-red-100 text-red-800'
                                 }`}>
-                                  {transaction.status || 'Completed'}
+                                  {transaction.payment_status || 'N/A'}
                                 </span>
                               </td>
                               <td className="px-8 py-6 whitespace-nowrap text-base text-gray-700 text-center">
                                 {transaction.payment_method || 'N/A'}
                               </td>
                               <td className="px-8 py-6 whitespace-nowrap text-base text-gray-700 font-mono text-center">
-                                {transaction.razorpay_order_id || `INV-${transaction.id}`}
+                                {transaction.razorpay_payment_id || transaction.payment_id || 'N/A'}
                               </td>
                               <td className="px-8 py-6 whitespace-nowrap text-center">
                                 {transaction.invoice_link && (
