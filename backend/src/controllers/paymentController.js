@@ -2771,6 +2771,55 @@ const verifySubscription = async (req, res) => {
   }
 };
 
+// const getUserPaymentHistory = async (req, res) => {
+//   try {
+//     const userId = req.user?.id;
+//     if (!userId) {
+//       return res.status(401).json({ success: false, message: "Unauthorized user" });
+//     }
+
+//     const paymentHistory = await db.query(
+//       `SELECT
+//         p.id AS payment_id,
+//         p.razorpay_payment_id,
+//         p.amount,
+//         p.currency,
+//         p.status AS payment_status,
+//         p.payment_method,
+//         p.created_at AS payment_date,
+//         us.id AS user_subscription_id,
+//         us.status AS subscription_status,
+//         sp.name AS plan_name,
+//         sp.description AS plan_description,
+//         sp.price AS plan_price,
+//         sp.interval AS plan_interval,
+//         sp.token_limit AS plan_token_limit
+//       FROM
+//         payments p
+//       JOIN
+//         user_subscriptions us ON p.subscription_id = us.id
+//       JOIN
+//         subscription_plans sp ON us.plan_id = sp.id
+//       WHERE
+//         p.user_id = $1
+//       ORDER BY
+//         p.created_at DESC`,
+//       [userId]
+//     );
+
+//     return res.status(200).json({
+//       success: true,
+//       data: paymentHistory.rows,
+//     });
+//   } catch (err) {
+//     console.error("❌ Error fetching user payment history:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch payment history",
+//       error: err.message,
+//     });
+//   }
+// };
 const getUserPaymentHistory = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -2787,23 +2836,25 @@ const getUserPaymentHistory = async (req, res) => {
         p.status AS payment_status,
         p.payment_method,
         p.created_at AS payment_date,
+        
         us.id AS user_subscription_id,
         us.status AS subscription_status,
+        us.start_date,
+        us.end_date,
+
+        sp.id AS plan_id,
         sp.name AS plan_name,
         sp.description AS plan_description,
         sp.price AS plan_price,
         sp.interval AS plan_interval,
         sp.token_limit AS plan_token_limit
-      FROM
-        payments p
-      JOIN
-        user_subscriptions us ON p.subscription_id = us.id
-      JOIN
-        subscription_plans sp ON us.plan_id = sp.id
-      WHERE
-        p.user_id = $1
-      ORDER BY
-        p.created_at DESC`,
+      FROM payments p
+      LEFT JOIN user_subscriptions us 
+        ON p.subscription_id = us.id
+      LEFT JOIN subscription_plans sp 
+        ON us.plan_id = sp.id
+      WHERE p.user_id = $1
+      ORDER BY p.created_at DESC, p.id DESC`,
       [userId]
     );
 
