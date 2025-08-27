@@ -224,112 +224,159 @@
 //   }
 // };
 
-// // Webhook handler for Razorpay events
-// const handleWebhook = async (req, res) => {
-//   try {
-//     const signature = req.headers['x-razorpay-signature'];
-//     const payload = JSON.stringify(req.body);
+// Webhook handler for Razorpay events
+const handleWebhook = async (req, res) => {
+  try {
+    const signature = req.headers['x-razorpay-signature'];
+    const payload = JSON.stringify(req.body);
+    console.log(`DEBUG: handleWebhook - Received webhook. Event: ${req.body.event}`);
     
-//     // Verify webhook signature
-//     const expectedSignature = crypto
-//       .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
-//       .update(payload)
-//       .digest('hex');
+    // Verify webhook signature
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
+      .update(payload)
+      .digest('hex');
     
-//     if (signature !== expectedSignature) {
-//       console.log("❌ Invalid webhook signature");
-//       return res.status(400).json({ message: "Invalid signature" });
-//     }
+    if (signature !== expectedSignature) {
+      console.log("❌ Invalid webhook signature");
+      console.log(`DEBUG: handleWebhook - Invalid signature. Expected: ${expectedSignature}, Received: ${signature}`);
+      return res.status(400).json({ message: "Invalid signature" });
+    }
     
-//     const { event, payload: eventPayload } = req.body;
-//     console.log(`🔔 Webhook received: ${event}`);
+    const { event, payload: eventPayload } = req.body;
+    console.log(`🔔 Webhook received: ${event}`);
+    console.log(`DEBUG: handleWebhook - Processing event: ${event}`);
     
-//     switch (event) {
-//       case 'subscription.activated':
-//         await handleSubscriptionActivated(eventPayload.subscription.entity);
-//         break;
-//       case 'subscription.charged':
-//         await handleSubscriptionCharged(eventPayload.payment.entity, eventPayload.subscription.entity);
-//         break;
-//       case 'subscription.cancelled':
-//         await handleSubscriptionCancelled(eventPayload.subscription.entity);
-//         break;
-//       case 'subscription.completed':
-//         await handleSubscriptionCompleted(eventPayload.subscription.entity);
-//         break;
-//       default:
-//         console.log(`Unhandled webhook event: ${event}`);
-//     }
+    switch (event) {
+      case 'subscription.activated':
+        console.log(`DEBUG: handleWebhook - Calling handleSubscriptionActivated for subscription ID: ${eventPayload.subscription.entity.id}`);
+        await handleSubscriptionActivated(eventPayload.subscription.entity);
+        break;
+      case 'subscription.charged':
+        console.log(`DEBUG: handleWebhook - Calling handleSubscriptionCharged for subscription ID: ${eventPayload.subscription.entity.id}`);
+        await handleSubscriptionCharged(eventPayload.payment.entity, eventPayload.subscription.entity);
+        break;
+      case 'subscription.cancelled':
+        console.log(`DEBUG: handleWebhook - Calling handleSubscriptionCancelled for subscription ID: ${eventPayload.subscription.entity.id}`);
+        await handleSubscriptionCancelled(eventPayload.subscription.entity);
+        break;
+      case 'subscription.completed':
+        console.log(`DEBUG: handleWebhook - Calling handleSubscriptionCompleted for subscription ID: ${eventPayload.subscription.entity.id}`);
+        await handleSubscriptionCompleted(eventPayload.subscription.entity);
+        break;
+      default:
+        console.log(`Unhandled webhook event: ${event}`);
+        console.log(`DEBUG: handleWebhook - Unhandled event type: ${event}`);
+    }
     
-//     return res.status(200).json({ status: 'ok' });
-//   } catch (err) {
-//     console.error("❌ Webhook handling failed:", err);
-//     return res.status(500).json({ message: "Webhook handling failed" });
-//   }
-// };
+    return res.status(200).json({ status: 'ok' });
+  } catch (err) {
+    console.error("❌ Webhook handling failed:", err);
+    console.error(`DEBUG: handleWebhook - Error: ${err.message}, Stack: ${err.stack}`);
+    return res.status(500).json({ message: "Webhook handling failed" });
+  }
+};
 
-// const handleSubscriptionActivated = async (subscription) => {
-//   try {
-//     await db.query(
-//       `UPDATE user_subscriptions 
-//        SET status = 'active', activated_at = CURRENT_TIMESTAMP 
-//        WHERE razorpay_subscription_id = $1`,
-//       [subscription.id]
-//     );
-//     console.log(`✅ Subscription ${subscription.id} activated`);
-//   } catch (err) {
-//     console.error("Error handling subscription activation:", err);
-//   }
-// };
+const handleSubscriptionActivated = async (subscription) => {
+  try {
+    console.log(`DEBUG: handleSubscriptionActivated - Attempting to activate subscription ID: ${subscription.id}`);
+    const result = await db.query(
+      `UPDATE user_subscriptions
+       SET status = 'active', activated_at = CURRENT_TIMESTAMP
+       WHERE razorpay_subscription_id = $1 RETURNING user_id, plan_id`,
+      [subscription.id]
+    );
+    if (result.rows.length > 0) {
+      const { user_id, plan_id } = result.rows[0];
+      console.log(`✅ Subscription ${subscription.id} activated. User ID: ${user_id}, New Status: active`);
 
-// const handleSubscriptionCharged = async (payment, subscription) => {
-//   try {
-//     // Update payment info and reset token balance if needed
-//     await db.query(
-//       `UPDATE user_subscriptions 
-//        SET razorpay_payment_id = $1, 
-//            last_charged_at = CURRENT_TIMESTAMP,
-//            current_token_balance = (
-//              SELECT token_limit FROM subscription_plans 
-//              WHERE razorpay_plan_id = $2
-//            ),
-//            last_reset_date = CURRENT_DATE
-//        WHERE razorpay_subscription_id = $3`,
-//       [payment.id, subscription.plan_id, subscription.id]
-//     );
-//     console.log(`✅ Subscription ${subscription.id} charged`);
-//   } catch (err) {
-//     console.error("Error handling subscription charge:", err);
-//   }
-// };
+      // Fetch token_limit from subscription_plans
+      const planResult = await db.query(
+        `SELECT token_limit FROM subscription_plans WHERE id = $1`,
+        [plan_id]
+      );
+      if (planResult.rows.length > 0) {
+        const tokenLimit = planResult.rows[0].token_limit;
+        await TokenUsageService.resetUserUsage(user_id, tokenLimit, 'Subscription Activated');
+        console.log(`DEBUG: handleSubscriptionActivated - User ${user_id} tokens reset to ${tokenLimit}.`);
+      } else {
+        console.warn(`⚠️ handleSubscriptionActivated - Plan ID ${plan_id} not found for user ${user_id}. Cannot reset tokens.`);
+      }
+    } else {
+      console.warn(`⚠️ handleSubscriptionActivated - No user_subscription found for Razorpay ID: ${subscription.id}`);
+    }
+  } catch (err) {
+    console.error(`❌ Error handling subscription activation for ID ${subscription.id}:`, err);
+    console.error(`DEBUG: handleSubscriptionActivated - Error: ${err.message}, Stack: ${err.stack}`);
+  }
+};
 
-// const handleSubscriptionCancelled = async (subscription) => {
-//   try {
-//     await db.query(
-//       `UPDATE user_subscriptions 
-//        SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP 
-//        WHERE razorpay_subscription_id = $1`,
-//       [subscription.id]
-//     );
-//     console.log(`✅ Subscription ${subscription.id} cancelled`);
-//   } catch (err) {
-//     console.error("Error handling subscription cancellation:", err);
-//   }
-// };
+const handleSubscriptionCharged = async (payment, subscription) => {
+  try {
+    console.log(`DEBUG: handleSubscriptionCharged - Attempting to handle charge for subscription ID: ${subscription.id}`);
+    // Update payment info
+    const updateResult = await db.query(
+      `UPDATE user_subscriptions
+       SET razorpay_payment_id = $1,
+            last_charged_at = CURRENT_TIMESTAMP,
+            last_reset_date = CURRENT_DATE -- Update last reset date
+       WHERE razorpay_subscription_id = $2 RETURNING user_id, plan_id`,
+      [payment.id, subscription.id]
+    );
 
-// const handleSubscriptionCompleted = async (subscription) => {
-//   try {
-//     await db.query(
-//       `UPDATE user_subscriptions 
-//        SET status = 'completed', completed_at = CURRENT_TIMESTAMP 
-//        WHERE razorpay_subscription_id = $1`,
-//       [subscription.id]
-//     );
-//     console.log(`✅ Subscription ${subscription.id} completed`);
-//   } catch (err) {
-//     console.error("Error handling subscription completion:", err);
-//   }
-// };
+    if (updateResult.rows.length > 0) {
+      const { user_id, plan_id } = updateResult.rows[0];
+      console.log(`✅ Subscription ${subscription.id} charged. User ID: ${user_id}`);
+
+      // Fetch token_limit from subscription_plans
+      const planResult = await db.query(
+        `SELECT token_limit FROM subscription_plans WHERE id = $1`,
+        [plan_id]
+      );
+      if (planResult.rows.length > 0) {
+        const tokenLimit = planResult.rows[0].token_limit;
+        await TokenUsageService.resetUserUsage(user_id, tokenLimit, 'Subscription Charged/Renewed');
+        console.log(`DEBUG: handleSubscriptionCharged - User ${user_id} tokens reset to ${tokenLimit}.`);
+      } else {
+        console.warn(`⚠️ handleSubscriptionCharged - Plan ID ${plan_id} not found for user ${user_id}. Cannot reset tokens.`);
+      }
+    } else {
+      console.warn(`⚠️ handleSubscriptionCharged - No user_subscription found for Razorpay ID: ${subscription.id} during charge handling.`);
+    }
+    console.log(`✅ Subscription ${subscription.id} charged`);
+  } catch (err) {
+    console.error(`❌ Error handling subscription charge for ID ${subscription.id}:`, err);
+    console.error(`DEBUG: handleSubscriptionCharged - Error: ${err.message}, Stack: ${err.stack}`);
+  }
+};
+
+const handleSubscriptionCancelled = async (subscription) => {
+  try {
+    await db.query(
+      `UPDATE user_subscriptions
+       SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
+       WHERE razorpay_subscription_id = $1`,
+      [subscription.id]
+    );
+    console.log(`✅ Subscription ${subscription.id} cancelled`);
+  } catch (err) {
+    console.error("Error handling subscription cancellation:", err);
+  }
+};
+
+const handleSubscriptionCompleted = async (subscription) => {
+  try {
+    await db.query(
+      `UPDATE user_subscriptions
+       SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+       WHERE razorpay_subscription_id = $1`,
+      [subscription.id]
+    );
+    console.log(`✅ Subscription ${subscription.id} completed`);
+  } catch (err) {
+    console.error("Error handling subscription completion:", err);
+  }
+};
 
 // module.exports = {
 //   startSubscription,
@@ -2559,11 +2606,10 @@
 //   testRazorpayConnection,
 // };
 
-// backend/controllers/paymentController.js
-
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const db = require("../config/db");
+const TokenUsageService = require("../services/tokenUsageService"); // Import TokenUsageService
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -2653,10 +2699,10 @@ const startSubscription = async (req, res) => {
     }
 
     await db.query(
-      `INSERT INTO user_subscriptions 
+      `INSERT INTO user_subscriptions
         (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT (user_id) DO UPDATE SET 
+       ON CONFLICT (user_id) DO UPDATE SET
          plan_id = EXCLUDED.plan_id,
          razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
          status = EXCLUDED.status,
@@ -2664,6 +2710,11 @@ const startSubscription = async (req, res) => {
          updated_at = CURRENT_TIMESTAMP`,
       [userId, plan.id, subscription.id, subscription.status, plan.token_limit || 0]
     );
+
+    // Allocate initial tokens using TokenUsageService
+    if (plan.token_limit !== undefined && plan.token_limit !== null) {
+      await TokenUsageService.resetUserUsage(userId, plan.token_limit, 'Initial Subscription Token Allocation');
+    }
 
     return res.status(200).json({
       success: true,
@@ -2687,21 +2738,86 @@ const verifySubscription = async (req, res) => {
   try {
     const userId = req.user?.id;
     const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body;
+    console.log(`DEBUG: verifySubscription - User ${userId} - Payment ID: ${razorpay_payment_id}, Subscription ID: ${razorpay_subscription_id}`);
     if (!userId || !razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
       return res.status(400).json({ success: false, message: "Missing verification data" });
     }
     const expectedSignature = crypto.createHmac('sha256', process.env.RAZORPAY_SECRET).update(`${razorpay_payment_id}|${razorpay_subscription_id}`).digest('hex');
     if (expectedSignature !== razorpay_signature) {
+      console.log(`DEBUG: verifySubscription - Invalid signature for User ${userId}. Expected: ${expectedSignature}, Received: ${razorpay_signature}`);
       return res.status(400).json({ success: false, message: "Invalid payment signature" });
     }
+
+    // Fetch payment details from Razorpay
+    const paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
+
     const updateResult = await db.query(
       `UPDATE user_subscriptions SET status = 'active', razorpay_payment_id = $1, activated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2 AND razorpay_subscription_id = $3 RETURNING *`,
       [razorpay_payment_id, userId, razorpay_subscription_id]
     );
     if (updateResult.rows.length === 0) return res.status(404).json({ success: false, message: "Subscription not found" });
-    return res.status(200).json({ success: true, message: "Subscription verified successfully", subscription: updateResult.rows[0] });
+
+    // Fetch the plan details to get the token_limit
+    const userSubscription = updateResult.rows[0];
+    const planQuery = await db.query("SELECT token_limit FROM subscription_plans WHERE id = $1", [userSubscription.plan_id]);
+    const tokenLimit = planQuery.rows.length > 0 ? planQuery.rows[0].token_limit : 0;
+
+    // Reset user tokens upon successful verification and activation
+    await TokenUsageService.resetUserUsage(userId, tokenLimit, 'Subscription Verified and Activated');
+
+    return res.status(200).json({ success: true, message: "Subscription verified successfully", subscription: userSubscription });
   } catch (err) {
     return res.status(500).json({ success: false, message: "Subscription verification failed", error: err.message });
+  }
+};
+
+const getUserPaymentHistory = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized user" });
+    }
+
+    const paymentHistory = await db.query(
+      `SELECT
+        p.id AS payment_id,
+        p.razorpay_payment_id,
+        p.amount,
+        p.currency,
+        p.status AS payment_status,
+        p.payment_method,
+        p.created_at AS payment_date,
+        us.id AS user_subscription_id,
+        us.status AS subscription_status,
+        sp.name AS plan_name,
+        sp.description AS plan_description,
+        sp.price AS plan_price,
+        sp.interval AS plan_interval,
+        sp.token_limit AS plan_token_limit
+      FROM
+        payments p
+      JOIN
+        user_subscriptions us ON p.subscription_id = us.id
+      JOIN
+        subscription_plans sp ON us.plan_id = sp.id
+      WHERE
+        p.user_id = $1
+      ORDER BY
+        p.created_at DESC`,
+      [userId]
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: paymentHistory.rows,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching user payment history:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch payment history",
+      error: err.message,
+    });
   }
 };
 
@@ -2743,4 +2859,6 @@ module.exports = {
   verifySubscription,
   testPlans,
   testRazorpayConnection,
+  handleWebhook,
+  getUserPaymentHistory,
 };

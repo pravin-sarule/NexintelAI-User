@@ -150,7 +150,8 @@ const {
   startSubscription,
   verifySubscription,
   testPlans,
-  testRazorpayConnection
+  testRazorpayConnection,
+  getUserPaymentHistory
 } = require('../controllers/paymentController');
 const { protect } = require('../middleware/auth');
 
@@ -195,5 +196,8 @@ router.get('/test-razorpay-connection', testRazorpayConnection); // Razorpay API
 // ✅ Main Subscription Flow
 router.post('/subscription/start', protect, startSubscription);
 router.post('/subscription/verify', protect, verifySubscription);
+
+// ✅ User Payment History
+router.get('/history', protect, getUserPaymentHistory);
 
 module.exports = router;

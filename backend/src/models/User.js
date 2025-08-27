@@ -44,33 +44,31 @@ class User {
     return result.rows[0];
   }
 
-  static async update(id, {
-    username,
-    email,
-    password,
-    google_uid = null,
-    auth_type = 'manual',
-    profile_image = null,
-    firebase_uid = null,
-    role = 'user',
-    is_blocked = false
-  }) {
-    const result = await pool.query(
-      `UPDATE users SET
-        username = $1,
-        email = $2,
-        password = $3,
-        google_uid = $4,
-        auth_type = $5,
-        profile_image = $6,
-        firebase_uid = $7,
-        role = $8,
-        is_blocked = $9,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $10
-      RETURNING *`,
-      [username, email, password, google_uid, auth_type, profile_image, firebase_uid, role, is_blocked, id]
-    );
+  static async update(id, fields) {
+    const setClauses = [];
+    const values = [];
+    let paramIndex = 1;
+
+    for (const key in fields) {
+      if (fields[key] !== undefined) {
+        setClauses.push(`${key} = $${paramIndex}`);
+        values.push(fields[key]);
+        paramIndex++;
+      }
+    }
+
+    if (setClauses.length === 0) {
+      return this.findById(id); // No fields to update, return current user
+    }
+
+    values.push(id); // Add id for WHERE clause
+    const query = `UPDATE users SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${paramIndex} RETURNING *`;
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  }
+
+  static async delete(id) {
+    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING *', [id]);
     return result.rows[0];
   }
 }

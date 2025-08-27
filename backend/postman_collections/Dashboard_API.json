@@ -1,0 +1,65 @@
+{
+  "info": {
+    "_postman_id": "YOUR_POSTMAN_COLLECTION_ID",
+    "name": "Dashboard API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Dashboard Summary",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer YOUR_AUTH_TOKEN",
+            "type": "text",
+            "description": "Replace with a valid JWT token"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/api/dashboard/summary",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "dashboard",
+            "summary"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Token Usage (New API)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer YOUR_AUTH_TOKEN",
+            "type": "text",
+            "description": "Replace with a valid JWT token"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/api/dashboard/token-usage",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "dashboard",
+            "token-usage"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

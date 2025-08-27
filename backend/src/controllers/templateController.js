@@ -6,6 +6,7 @@ const os = require('os');
 const mammoth = require('mammoth');
 const pool = require('../config/db');
 const Template = require('../models/Template');
+const TokenUsageService = require('../services/tokenUsageService');
 
 const storage = new Storage({
   projectId: process.env.GCP_PROJECT_ID,
@@ -32,11 +33,32 @@ function normalizeGcsKey(gcsPath, bucketName) {
 
 exports.getTemplates = async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM templates WHERE status = $1', ['active']);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    // Fetch user's template access level from their active subscription
+    const userSubscriptionQuery = `
+      SELECT sp.template_access
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = $1 AND us.status = 'active';
+    `;
+    const userSubscriptionResult = await pool.query(userSubscriptionQuery, [userId]);
+    const userTemplateAccess = userSubscriptionResult.rows[0]?.template_access || 'free'; // Default to 'free'
+
+    // Fetch templates, filtering by access level
+    const templatesQuery = `
+      SELECT * FROM templates
+      WHERE status = 'active'
+      AND (is_public = TRUE OR user_id = $1 OR (access_level = 'free' AND $2 IN ('free', 'basic', 'premium')) OR (access_level = 'basic' AND $2 IN ('basic', 'premium')) OR (access_level = 'premium' AND $2 = 'premium'));
+    `;
+    const { rows } = await pool.query(templatesQuery, [userId, userTemplateAccess]);
     res.json(rows);
   } catch (err) {
     console.error('Error fetching templates:', err);
-    res.status(500).json({ message: 'Error fetching templates' });
+    res.status(500).json({ message: 'Error fetching templates', error: err.message });
   }
 };
 
@@ -103,12 +125,49 @@ exports.openDocxTemplateAsHtml = async (req, res) => {
 };
 
 exports.saveUserDraft = async (req, res) => {
+  let draftSaveCost; // Declare draftSaveCost here
   try {
     const { templateId, name } = req.body;
     const userId = req.user.id;
 
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    // Fetch user's drafting_type from their active subscription
+    const userSubscriptionQuery = `
+      SELECT sp.drafting_type
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = $1 AND us.status = 'active';
+    `;
+    const userSubscriptionResult = await pool.query(userSubscriptionQuery, [userId]);
+    const userDraftingType = userSubscriptionResult.rows[0]?.drafting_type || 'basic'; // Default to 'basic'
+
+    // Fetch the template's access_level
+    const templateResult = await pool.query('SELECT access_level FROM templates WHERE id = $1', [templateId]);
+    if (!templateResult.rows.length) {
+      return res.status(404).json({ message: 'Template not found.' });
+    }
+    const templateAccessLevel = templateResult.rows[0].access_level || 'free';
+
+    const accessLevels = {
+      'free': 0,
+      'basic': 1,
+      'premium': 2
+    };
+
+    if (accessLevels[userDraftingType] < accessLevels[templateAccessLevel]) {
+      return res.status(403).json({ message: 'Access denied. Your subscription plan does not allow saving drafts from this template type.' });
+    }
+
+    // Calculate token cost for saving a draft (e.g., 1 token per KB of file size)
+    draftSaveCost = Math.ceil(req.file.size / 1024);
+
+    // Check and reserve tokens
+    const tokensReserved = await TokenUsageService.checkAndReserveTokens(userId, draftSaveCost);
+    if (!tokensReserved) {
+      return res.status(403).json({ message: 'User token limit is exceeded for saving drafts.' });
     }
 
     const gcsPath = `nexintel-uploads/${userId}/drafts/${Date.now()}-${req.file.originalname}`;
@@ -124,9 +183,16 @@ exports.saveUserDraft = async (req, res) => {
       [userId, templateId, name, gcsPath]
     );
 
+    // Commit tokens after successful draft save
+    await TokenUsageService.commitTokens(userId, draftSaveCost, `Save user draft: ${name}`);
+
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error('Error saving user draft:', err);
+    // Rollback tokens if an error occurs during draft save
+    if (draftSaveCost) {
+      await TokenUsageService.rollbackTokens(userId, draftSaveCost);
+    }
     res.status(500).json({ message: 'Error saving user draft' });
   }
 };
@@ -177,9 +243,31 @@ exports.getTemplateById = async (req, res) => {
       return res.status(404).json({ message: 'Template not found' });
     }
 
-    // Ensure the template is either public or owned by the user
-    if (!template.is_public && template.user_id !== userId) {
-      return res.status(403).json({ message: 'Access denied' });
+    // Fetch user's template access level from their active subscription
+    const userSubscriptionQuery = `
+      SELECT sp.template_access
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = $1 AND us.status = 'active';
+    `;
+    const userSubscriptionResult = await pool.query(userSubscriptionQuery, [userId]);
+    const userTemplateAccess = userSubscriptionResult.rows[0]?.template_access || 'free'; // Default to 'free'
+
+    // Check template access level
+    const templateAccessLevel = template.access_level || 'free'; // Default to 'free' for template
+
+    const accessLevels = {
+      'free': 0,
+      'basic': 1,
+      'premium': 2
+    };
+
+    if (
+      !template.is_public &&
+      template.user_id !== userId &&
+      accessLevels[userTemplateAccess] < accessLevels[templateAccessLevel]
+    ) {
+      return res.status(403).json({ message: 'Access denied. Your subscription plan does not support this template.' });
     }
 
     res.json(template);
@@ -206,24 +294,48 @@ exports.getUserTemplates = async (req, res) => {
 };
 
 exports.addHtmlTemplate = async (req, res) => {
+  let templateCost; // Declare templateCost here
   try {
-    const { name, html, is_public } = req.body;
+    const { name, html, is_public, access_level = 'free' } = req.body; // Add access_level
     const userId = req.user?.id;
 
     if (!userId) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    const newTemplate = await Template.create({
-      user_id: userId,
-      name,
-      html,
-      is_public: is_public || false
-    });
+    // Calculate token cost for adding an HTML template (e.g., 1 token per 100 characters of HTML)
+    templateCost = Math.ceil(html.length / 100);
 
-    res.status(201).json(newTemplate);
+    // Check and reserve tokens
+    const tokensReserved = await TokenUsageService.checkAndReserveTokens(userId, templateCost);
+    if (!tokensReserved) {
+      return res.status(403).json({ message: 'User token limit is exceeded for adding templates.' });
+    }
+
+    let newTemplate;
+    try {
+      newTemplate = await Template.create({
+        user_id: userId,
+        name,
+        html,
+        is_public: is_public || false,
+        access_level: access_level // Save the access level
+      });
+      // Commit tokens after successful template creation
+      await TokenUsageService.commitTokens(userId, templateCost, `Add HTML template: ${name}`);
+      res.status(201).json(newTemplate);
+    } catch (dbError) {
+      console.error('Error creating HTML template in DB:', dbError);
+      // Rollback tokens if DB operation fails
+      await TokenUsageService.rollbackTokens(userId, templateCost);
+      return res.status(500).json({ message: 'Error adding HTML template', error: dbError.message });
+    }
   } catch (err) {
     console.error('Error adding HTML template:', err);
+    // Rollback tokens if an error occurs during template creation (if templateCost was set)
+    if (templateCost) {
+      await TokenUsageService.rollbackTokens(userId, templateCost);
+    }
     res.status(500).json({ message: 'Error adding HTML template' });
   }
 };

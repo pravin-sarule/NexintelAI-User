@@ -17,6 +17,7 @@ const adminRoutes = require('./src/routes/adminRoutes');
 const userPlanRoutes = require('./src/routes/userPlan.routes');
 const supportRoutes = require("./src/routes/supportRoutes");
 const dashboardRoutes =require('./src/routes/dashboardRoutes');
+const userResourceRoutes = require('./src/routes/userResourceRoutes');
 
 const app = express();
 
@@ -52,12 +53,13 @@ app.use('/api/auth', authRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/doc', documentRoutes);
 app.use('/api/payments', paymentRoutes);
-app.use('/api/draft', templateRoutes);
+app.use('/api/templates', templateRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/plans', userPlanRoutes);
 app.use("/api/support", supportRoutes);
 app.use('/api/dashboard',dashboardRoutes);
+app.use('/api/user-resources', userResourceRoutes);
 console.log('Registering payment routes at /api/payments'); // Added for debugging
 // Temporary test route - keep this for testing
 app.get('/api/test-route', (req, res) => {

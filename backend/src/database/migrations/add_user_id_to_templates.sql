@@ -1,0 +1,2 @@
+ALTER TABLE templates
+ADD COLUMN user_id INT REFERENCES users(id) ON DELETE SET NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE token_usage RENAME TO token_usage_logs;

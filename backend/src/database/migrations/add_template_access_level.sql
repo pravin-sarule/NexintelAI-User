@@ -1,0 +1,2 @@
+ALTER TABLE templates
+ADD COLUMN access_level VARCHAR(50) NOT NULL DEFAULT 'free';

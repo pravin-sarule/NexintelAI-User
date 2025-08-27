@@ -1,6 +1,6 @@
 
 
-// backend/controllers/documentController.js
+const db = require('../config/db'); // Import db for querying user subscriptions
 const DocumentModel = require('../models/documentModel');
 const FileChunkModel = require('../models/FileChunk');
 const ChunkVectorModel = require('../models/ChunkVector');
@@ -15,6 +15,7 @@ const { extractTextFromDocument } = require('../../services/documentAiService');
 const { chunkDocument } = require('../../services/chunkingService');
 const { generateEmbedding, generateEmbeddings } = require('../../services/embeddingService');
 const { normalizeGcsKey } = require('../utils/gcsKey');
+const TokenUsageService = require('../services/tokenUsageService');
 
 const { v4: uuidv4 } = require('uuid');
 
@@ -27,6 +28,31 @@ exports.uploadDocument = async (req, res) => {
     }
 
     const userId = req.user.id;
+
+    // Check document limit
+    const userSubscriptionQuery = `
+      SELECT
+          sp.document_limit
+      FROM
+          user_subscriptions us
+      JOIN
+          subscription_plans sp ON us.plan_id = sp.id
+      WHERE
+          us.user_id = $1 AND us.status = 'active';
+    `;
+    const subscriptionResult = await db.query(userSubscriptionQuery, [userId]);
+
+    if (subscriptionResult.rows.length === 0) {
+      console.warn(`User ${userId} has no active subscription for document limit check.`);
+      return res.status(403).json({ message: 'No active subscription found. Document upload not allowed.' });
+    }
+
+    const documentLimit = subscriptionResult.rows[0].document_limit;
+    const currentDocumentCount = await DocumentModel.countDocumentsByUserId(userId);
+
+    if (documentLimit !== 0 && currentDocumentCount >= documentLimit) {
+      return res.status(403).json({ message: `Document limit of ${documentLimit} reached. Upgrade your plan to upload more documents.` });
+    }
 
     // Upload to GCS immediately
     const { url: gcs_path, path: folder_path } = await uploadToGCS(file.originalname, file.buffer);
@@ -144,7 +170,27 @@ exports.analyzeDocument = async (req, res) => {
     const chunks = await FileChunkModel.getChunksByFileId(file_id);
     const fullText = chunks.map((c) => c.content).join('\n\n');
 
-    const insights = await analyzeWithGemini(fullText);
+    // Calculate token cost for document analysis (e.g., 1 token per 500 characters)
+    const analysisCost = Math.ceil(fullText.length / 500);
+
+    // Check and reserve tokens
+    const tokensReserved = await TokenUsageService.checkAndReserveTokens(req.user.id, analysisCost);
+    if (!tokensReserved) {
+      return res.status(403).json({ message: 'User token limit is exceeded for document analysis.' });
+    }
+
+    let insights;
+    try {
+      insights = await analyzeWithGemini(fullText);
+      // Commit tokens after successful analysis
+      await TokenUsageService.commitTokens(req.user.id, analysisCost, `Document analysis for file ${file_id}`);
+    } catch (aiError) {
+      console.error('❌ Gemini analysis error:', aiError);
+      // Rollback tokens if AI analysis fails
+      await TokenUsageService.rollbackTokens(req.user.id, analysisCost);
+      return res.status(500).json({ error: 'Failed to get AI analysis.', details: aiError.message });
+    }
+
     return res.json(insights);
   } catch (error) {
     console.error('❌ analyzeDocument error:', error);
@@ -191,7 +237,27 @@ exports.getSummary = async (req, res) => {
       return res.status(400).json({ error: 'Selected chunks contain no readable content.' });
     }
 
-    const summary = await getSummaryFromChunks(combinedText);
+    // Calculate token cost for summary generation (e.g., 1 token per 200 characters of combined text)
+    const summaryCost = Math.ceil(combinedText.length / 200);
+
+    // Check and reserve tokens
+    const tokensReserved = await TokenUsageService.checkAndReserveTokens(userId, summaryCost);
+    if (!tokensReserved) {
+      return res.status(403).json({ message: 'User token limit is exceeded for summary generation.' });
+    }
+
+    let summary;
+    try {
+      summary = await getSummaryFromChunks(combinedText);
+      // Commit tokens after successful summary generation
+      await TokenUsageService.commitTokens(userId, summaryCost, `Summary generation for file ${file_id}`);
+    } catch (aiError) {
+      console.error('❌ Gemini summary error:', aiError);
+      // Rollback tokens if summary generation fails
+      await TokenUsageService.rollbackTokens(userId, summaryCost);
+      return res.status(500).json({ error: 'Failed to generate summary.', details: aiError.message });
+    }
+
     return res.json({ summary, used_chunk_ids: safeChunkIds });
   } catch (error) {
     console.error('❌ Error generating summary:', error);
@@ -201,6 +267,7 @@ exports.getSummary = async (req, res) => {
 
 
 exports.chatWithDocument = async (req, res) => {
+  let chatCost; // Declare chatCost here to be accessible in catch block
   try {
     const { file_id, question } = req.body;
     const userId = req.user.id;
@@ -248,6 +315,16 @@ exports.chatWithDocument = async (req, res) => {
       return res.status(400).json({ error: 'Document has no readable content for chat.' });
     }
 
+    // Calculate token cost for AI chat (e.g., 1 token per 100 characters of question + document content)
+    const chatContentLength = question.length + documentFullText.length;
+    chatCost = Math.ceil(chatContentLength / 100); // Example: 1 token per 100 characters
+
+    // Check and reserve tokens
+    const tokensReserved = await TokenUsageService.checkAndReserveTokens(userId, chatCost);
+    if (!tokensReserved) {
+      return res.status(403).json({ message: 'User token limit is exceeded for AI chat.' });
+    }
+
     // Generate embedding for the user's question
     const questionEmbedding = await generateEmbedding(question);
 
@@ -263,6 +340,8 @@ exports.chatWithDocument = async (req, res) => {
       // Fallback: answer without context, but clearly state limitation in the prompt
       answer = await askGemini('No relevant context found in the document.', question);
       await DocumentModel.saveChat(file_id, userId, question, answer, []);
+      // Commit tokens even if no context was found, as an AI call was still made
+      await TokenUsageService.commitTokens(userId, chatCost, `AI chat for document ${file_id} (no context)`);
       return res.json({ answer, used_chunk_ids: [] });
     }
 
@@ -275,10 +354,17 @@ exports.chatWithDocument = async (req, res) => {
     // Save the Q&A chat with chunk references for traceability
     await FileChatModel.saveChat(file_id, userId, question, answer, null, usedChunkIds);
 
+    // Commit tokens after successful AI interaction
+    await TokenUsageService.commitTokens(userId, chatCost, `AI chat for document ${file_id}`);
+
     // Return answer and chunk ids used
     return res.json({ answer, used_chunk_ids: usedChunkIds });
   } catch (error) {
     console.error('❌ Error chatting with document:', error);
+    // Rollback tokens if an error occurs during AI chat
+    if (chatCost) { // Only rollback if cost was calculated and reservation attempted
+      await TokenUsageService.rollbackTokens(userId, chatCost);
+    }
     return res.status(500).json({ error: 'Failed to get AI answer.', details: error.message });
   }
 };

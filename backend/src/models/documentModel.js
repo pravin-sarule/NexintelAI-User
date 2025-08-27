@@ -52,6 +52,13 @@ const DocumentModel = {
     `, [docxUrl, pdfUrl, documentId]);
   },
 
+  async countDocumentsByUserId(userId) {
+    const res = await pool.query(`
+      SELECT COUNT(*) FROM user_files
+      WHERE user_id = $1 AND is_folder = FALSE
+    `, [userId]);
+    return parseInt(res.rows[0].count, 10);
+  },
 
   async getFileChunks(fileId) {
     const res = await pool.query(`

@@ -22,7 +22,7 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // File upload routes
-router.post('/upload', protect, upload.any(), uploadFile);
+router.post('/upload', protect, upload.array('files'), uploadFile);
 // router.post('/upload', protect, upload.single('file'), uploadFile);
 // router.post('/upload', protect, upload.single('file'), uploadFile);
 router.post('/upload-folder', protect, upload.array('files'), uploadFolder);
@@ -40,7 +40,7 @@ router.get('/all', protect, getUserFiles); // Changed from '/' to '/all'
 router.delete('/:id', protect, deleteFile);
 
 // Save edited document route
-router.post('/save-edited', protect, upload.single('file'), uploadFile); // Reusing uploadFile for now, will create a dedicated one if needed
+router.post('/save-edited', protect, upload.array('files'), uploadFile); // Reusing uploadFile for now, will create a dedicated one if needed
 
 // Chat routes
 router.get('/:fileId/chat-history', protect, getFileChatHistory); // Can now accept ?sessionId=...

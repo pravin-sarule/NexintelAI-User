@@ -162,6 +162,8 @@ const createSubscriptionPlansTable = async () => {
         carry_over_limit INT NOT NULL,
         document_limit INT NOT NULL DEFAULT 0,
         ai_analysis_limit INT NOT NULL DEFAULT 0,
+        storage_limit_gb DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+        drafting_type VARCHAR(50) NOT NULL DEFAULT 'basic',
         template_access VARCHAR(50) NOT NULL DEFAULT 'free',
         limits JSONB,
         razorpay_plan_id VARCHAR(255),
@@ -232,6 +234,7 @@ const createTokenUsageLogsTable = async () => {
         id SERIAL PRIMARY KEY,
         user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         tokens_used INT NOT NULL,
+        remaining_tokens INT NOT NULL, -- New column for remaining tokens
         action_description TEXT,
         used_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       );

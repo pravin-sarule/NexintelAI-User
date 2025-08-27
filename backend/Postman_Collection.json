@@ -1,0 +1,620 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+		"name": "NexintelAI Token Usage System",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_collection_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+	},
+	"item": [
+		{
+			"name": "Auth - User Login",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"email\": \"testuser@example.com\",\n    \"password\": \"password123\"\n}"
+				},
+				"url": {
+					"raw": "{{BASE_URL}}/api/auth/login",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"auth",
+						"login"
+					]
+				}
+			},
+			"response": [
+				{
+					"name": "Successful Login",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"testuser@example.com\",\n    \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/login",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"user\": {\n        \"id\": 1,\n        \"email\": \"testuser@example.com\",\n        \"username\": \"testuser\"\n    }\n}"
+				}
+			]
+		},
+		{
+			"name": "Get User Resource Utilization",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Response has planDetails and resourceUtilization\", function () {",
+							"    const response = pm.response.json();",
+							"    pm.expect(response.planDetails).to.be.an('object');",
+							"    pm.expect(response.resourceUtilization).to.be.an('object');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					}
+				],
+				"url": {
+					"raw": "{{BASE_URL}}/api/user-resources/resource-utilization",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"user-resources",
+						"resource-utilization"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "File Upload (Token Check)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201 or 403\", function () {",
+							"    pm.expect(pm.response.code).to.be.oneOf([201, 403]);",
+							"});",
+							"if (pm.response.code === 403) {",
+							"    pm.test(\"Forbidden message for token limit\", function () {",
+							"        pm.expect(pm.response.json().message).to.include(\"token limit is exceeded\");",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "multipart/form-data"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"type": "file",
+							"src": "/path/to/your/small_file.txt"
+						},
+						{
+							"key": "folderPath",
+							"value": "test_uploads",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{BASE_URL}}/api/files/upload",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"files",
+						"upload"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "AI Chat (Token Check)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 or 403\", function () {",
+							"    pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+							"});",
+							"if (pm.response.code === 403) {",
+							"    pm.test(\"Forbidden message for token limit\", function () {",
+							"        pm.expect(pm.response.json().message).to.include(\"token limit is exceeded\");",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"question\": \"Summarize the key points of the document.\",\n    \"fileId\": \"<YOUR_FILE_ID_HERE>\"\n}"
+				},
+				"url": {
+					"raw": "{{BASE_URL}}/api/files/<YOUR_FILE_ID_HERE>/chat",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"files",
+						"<YOUR_FILE_ID_HERE>",
+						"chat"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Document Analysis (Token Check)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 or 403\", function () {",
+							"    pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+							"});",
+							"if (pm.response.code === 403) {",
+							"    pm.test(\"Forbidden message for token limit\", function () {",
+							"        pm.expect(pm.response.json().message).to.include(\"token limit is exceeded\");",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"file_id\": \"<YOUR_PROCESSED_DOCUMENT_ID_HERE>\"\n}"
+				},
+				"url": {
+					"raw": "{{BASE_URL}}/api/doc/analyze",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"doc",
+						"analyze"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Document Summary (Token Check)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 or 403\", function () {",
+							"    pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+							"});",
+							"if (pm.response.code === 403) {",
+							"    pm.test(\"Forbidden message for token limit\", function () {",
+							"        pm.expect(pm.response.json().message).to.include(\"token limit is exceeded\");",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"file_id\": \"<YOUR_PROCESSED_DOCUMENT_ID_HERE>\",\n    \"selected_chunk_ids\": [\"<CHUNK_ID_1>\", \"<CHUNK_ID_2>\"]\n}"
+				},
+				"url": {
+					"raw": "{{BASE_URL}}/api/doc/summary",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"doc",
+						"summary"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Save User Draft (Token Check)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201 or 403\", function () {",
+							"    pm.expect(pm.response.code).to.be.oneOf([201, 403]);",
+							"});",
+							"if (pm.response.code === 403) {",
+							"    pm.test(\"Forbidden message for token limit\", function () {",
+							"        pm.expect(pm.response.json().message).to.include(\"token limit is exceeded\");",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "multipart/form-data"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"type": "file",
+							"src": "/path/to/your/small_draft_file.docx"
+						},
+						{
+							"key": "templateId",
+							"value": "1",
+							"type": "text"
+						},
+						{
+							"key": "name",
+							"value": "My Test Draft",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{BASE_URL}}/api/draft",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"draft"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Add HTML Template (Token Check & Access Control)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201 or 403\", function () {",
+							"    pm.expect(pm.response.code).to.be.oneOf([201, 403]);",
+							"});",
+							"if (pm.response.code === 403) {",
+							"    pm.test(\"Forbidden message for token limit\", function () {",
+							"        pm.expect(pm.response.json().message).to.include(\"token limit is exceeded\");",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"My Premium Template\",\n    \"html\": \"<h1>This is a premium template.</h1><p>Only premium users can add this.</p>\",\n    \"is_public\": false,\n    \"access_level\": \"premium\"\n}"
+				},
+				"url": {
+					"raw": "{{BASE_URL}}/api/draft/admin/html",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"draft",
+						"admin",
+						"html"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Templates (Access Control)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 or 403\", function () {",
+							"    pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+							"});",
+							"if (pm.response.code === 403) {",
+							"    pm.test(\"Forbidden message for access denied\", function () {",
+							"        pm.expect(pm.response.json().message).to.include(\"Access denied\");",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					}
+				],
+				"url": {
+					"raw": "{{BASE_URL}}/api/draft",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"draft"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get User Transactions",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Response has transactions array\", function () {",
+							"    const response = pm.response.json();",
+							"    pm.expect(response.transactions).to.be.an('array');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					}
+				],
+				"url": {
+					"raw": "{{BASE_URL}}/api/user-resources/transactions",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"user-resources",
+						"transactions"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Plan and Resource Details",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Response has activePlan, resourceUtilization, and allPlanConfigurations\", function () {",
+							"    const response = pm.response.json();",
+							"    pm.expect(response.activePlan).to.be.an('object');",
+							"    pm.expect(response.resourceUtilization).to.be.an('object');",
+							"    pm.expect(response.allPlanConfigurations).to.be.an('array');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{AUTH_TOKEN}}"
+					}
+				],
+				"url": {
+					"raw": "{{BASE_URL}}/api/user-resources/plan-details?service=documents",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"user-resources",
+						"plan-details"
+					],
+					"query": [
+						{
+							"key": "service",
+							"value": "documents",
+							"description": "Optional: Specify 'tokens', 'queries', 'documents', or 'storage' for specific utilization details."
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "BASE_URL",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "AUTH_TOKEN",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

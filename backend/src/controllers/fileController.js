@@ -1,6 +1,10 @@
 
 
 
+require('dotenv').config(); // Load environment variables
+
+const mime = require('mime-types'); // Import mime-types
+
 const File = require('../models/File');
 const FileChat = require('../models/FileChat');
 const FileChunk = require('../models/FileChunk');
@@ -12,6 +16,7 @@ const archiver = require('archiver');
 const { Storage } = require('@google-cloud/storage');
 const { askGemini } = require('../../services/aiService');
 const { getEmbeddings } = require('../../services/embeddingService');
+const TokenUsageService = require('../services/tokenUsageService'); // Import TokenUsageService
 
 const storage = new Storage();
 
@@ -147,46 +152,60 @@ async function makeSignedReadUrl(objectKey, minutes = 15) {
 
 
 const uploadFile = async (req, res) => {
+  console.log("DEBUG: uploadFile function entered.");
   try {
     const userId = req.user?.id;
+    console.log(`DEBUG: uploadFile - User ID: ${userId}`);
     if (!userId) {
+      console.log("DEBUG: uploadFile - Unauthorized: No user ID.");
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
     const { folderPath = '' } = req.body;
+    console.log(`DEBUG: uploadFile - folderPath: ${folderPath}`);
 
     // ✅ Use req.files instead of req.file
     if (!req.files || req.files.length === 0) {
+      console.log("DEBUG: uploadFile - No files uploaded.");
       return res.status(400).json({ message: 'No file uploaded.' });
     }
 
     const file = req.files[0]; // get the first file from array
+    console.log(`DEBUG: uploadFile - File details: originalname=${file.originalname}, mimetype=${file.mimetype}, size=${file.size}`);
 
     // Optional: server-side max size guard (in bytes)
     const MAX_BYTES = 1024 * 1024 * 50; // 50 MB
     if (file.size > MAX_BYTES) {
+      console.log(`DEBUG: uploadFile - File too large: ${file.size} bytes (max ${MAX_BYTES} bytes).`);
       return res.status(413).json({ message: 'File too large.' });
     }
 
     // Check storage quota
+    console.log(`DEBUG: uploadFile - Calling checkStorageLimit for userId: ${userId}, fileSize: ${file.size}`);
     const isAllowed = await checkStorageLimit(userId, file.size);
+    console.log(`DEBUG: uploadFile - checkStorageLimit returned: ${isAllowed}`);
     if (!isAllowed) {
       return res.status(403).json({ message: 'Storage limit exceeded.' });
     }
+
 
     // Sanitize folder path and filename
     const safeFolder = sanitizeFolderPath(folderPath);
     const inferredExt = mime.extension(file.mimetype) || '';
     const safeName = sanitizeFilename(file.originalname, inferredExt ? `.${inferredExt}` : '');
+    console.log(`DEBUG: uploadFile - Sanitized: safeFolder=${safeFolder}, safeName=${safeName}`);
 
     // Build GCS key
     const key = safeFolder
       ? path.posix.join(String(userId), safeFolder, safeName)
       : path.posix.join(String(userId), safeName);
+    console.log(`DEBUG: uploadFile - GCS key candidate: ${key}`);
 
     const uniqueKey = await ensureUniqueKey(key);
+    console.log(`DEBUG: uploadFile - Unique GCS key: ${uniqueKey}`);
 
     // Upload to GCS
+    console.log(`DEBUG: uploadFile - Starting GCS upload for key: ${uniqueKey}`);
     const fileRef = bucket.file(uniqueKey);
     await new Promise((resolve, reject) => {
       const stream = fileRef.createWriteStream({
@@ -196,12 +215,19 @@ const uploadFile = async (req, res) => {
           cacheControl: 'private, max-age=0, no-transform',
         },
       });
-      stream.on('error', reject);
-      stream.on('finish', resolve);
+      stream.on('error', (err) => {
+        console.error('❌ GCS Stream Error:', err);
+        reject(err);
+      });
+      stream.on('finish', () => {
+        console.log(`DEBUG: uploadFile - GCS upload finished for key: ${uniqueKey}`);
+        resolve();
+      });
       stream.end(file.buffer);
     });
 
     // Save to DB
+    console.log(`DEBUG: uploadFile - Saving file metadata to DB.`);
     const savedFile = await File.create({
       user_id: userId,
       originalname: safeName,
@@ -210,20 +236,25 @@ const uploadFile = async (req, res) => {
       mimetype: file.mimetype,
       size: file.size,
     });
+    console.log(`DEBUG: uploadFile - File metadata saved to DB with ID: ${savedFile.id}`);
+
 
     const previewUrl = await makeSignedReadUrl(uniqueKey, 15);
+    console.log(`DEBUG: uploadFile - Generated preview URL.`);
 
     return res.status(201).json({
       message: 'File uploaded successfully',
       file: {
         ...savedFile,
         previewUrl,
-        bucket: BUCKET_NAME,
+        bucket: process.env.GCS_BUCKET_NAME, // Use environment variable for bucket name
         key: uniqueKey,
       },
     });
   } catch (error) {
     console.error('❌ Error uploading file:', error);
+    // Rollback tokens if an error occurs during upload
+    // No token usage for file uploads, so no rollback needed here.
     return res.status(500).json({
       message: 'Internal server error',
       error: error.message,
@@ -713,6 +744,7 @@ async function getFileChatHistory(req, res) {
 
 // Continue chat with a file
 async function continueFileChat(req, res) {
+  let chatCost; // Declare chatCost here to be accessible in catch block
   try {
     const { fileId } = req.params;
     const { question, sessionId } = req.body; // Get sessionId from body
@@ -737,6 +769,16 @@ async function continueFileChat(req, res) {
     // Combine chunk content for AI
     const documentContent = fileChunks.map(chunk => chunk.content).join('\n\n');
 
+    // Calculate token cost for AI chat (e.g., 1 token per 100 characters of question + document content)
+    const chatContentLength = question.length + documentContent.length;
+    chatCost = Math.ceil(chatContentLength / 100); // Example: 1 token per 100 characters
+
+    // Check and reserve tokens
+    const tokensReserved = await TokenUsageService.checkAndReserveTokens(userId, chatCost);
+    if (!tokensReserved) {
+      return res.status(403).json({ message: 'User token limit is exceeded for AI chat.' });
+    }
+
     // Get chat history to provide context to the AI
     const chatHistory = await FileChat.getChatHistory(fileId);
     const formattedChatHistory = chatHistory.flatMap(chat => [
@@ -754,12 +796,19 @@ async function continueFileChat(req, res) {
     // The askGemini function in aiService.js needs to be updated to accept history
     const aiAnswer = await askGemini(documentContent, question, formattedChatHistory);
 
+    // Commit tokens after successful AI interaction
+    await TokenUsageService.commitTokens(userId, chatCost, `AI chat for file ${fileId}`);
+
     // Save the new chat turn, passing the sessionId
     const savedChat = await FileChat.saveChat(fileId, userId, question, aiAnswer, sessionId);
 
     res.status(200).json({ answer: aiAnswer, sessionId: savedChat.session_id });
   } catch (error) {
     console.error('❌ Error continuing file chat:', error);
+    // Rollback tokens if an error occurs during AI chat
+    if (chatCost) { // Only rollback if cost was calculated and reservation attempted
+      await TokenUsageService.rollbackTokens(userId, chatCost);
+    }
     res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 }
