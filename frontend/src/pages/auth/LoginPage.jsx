@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import axios from 'axios';
 import 'react-toastify/dist/ReactToastify.css';
 import { Eye, EyeOff, Shield } from 'lucide-react';
 import PublicLayout from '../../layouts/PublicLayout';
-import { useFileManager } from '../../context/FileManagerContext';
+import { useAuth } from '../../context/AuthContext'; // Import useAuth
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({
@@ -17,8 +16,8 @@ const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
 
-  const navigate = useNavigate(); // Add this line back
-  const { setAuthToken } = useFileManager();
+  const navigate = useNavigate();
+  const { login } = useAuth(); // Get login function from AuthContext
 
   const validateEmail = (email) => {
     if (!email) return 'Email is required.';
@@ -67,51 +66,22 @@ const LoginPage = () => {
     }
 
     try {
-      const res = await axios.post(
-        'http://localhost:3000/api/auth/login',
-        { email: formData.email, password: formData.password },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const result = await login(formData.email, formData.password); // Use AuthContext's login
 
-      if (res.status === 200) {
+      if (result.success) {
         toast.success('Login successful!');
-        const { token, user } = res.data;
-        setAuthToken(token); // Use FileManagerContext's setAuthToken
-        localStorage.setItem('user', JSON.stringify(user)); // Keep this for user data
-        window.dispatchEvent(new Event('userUpdated'));
         setLoginSuccess(true); // Set success flag
         navigate('/dashboard');
       } else {
-        toast.error(res.data.message || 'Login failed.');
+        toast.error(result.message || 'Login failed.');
       }
     } catch (error) {
       if (loginSuccess) {
         // If login was already successful, do not show error toast
         return;
       }
-
-      if (error.response) {
-        // Server responded with a status other than 2xx
-        if (error.response.status === 403) {
-          toast.error('Your account has been blocked due to violations.');
-        } else if (error.response.status === 400) {
-          toast.error('Invalid credentials. Please try again.');
-        } else {
-          toast.error(error.response.data.message || 'An unexpected error occurred.');
-        }
-      } else if (error.request) {
-        // Request was made but no response was received
-        toast.error('Network error. Please check your internet connection.');
-        console.error('Network error:', error.message);
-      } else {
-        // Something happened in setting up the request that triggered an Error
-        toast.error('An unexpected error occurred. Please try again.');
-        console.error('Unexpected error:', error);
-      }
+      toast.error(error.message || 'An unexpected error occurred. Please try again.');
+      console.error('Unexpected error:', error);
     }
   };
 
@@ -200,4 +170,3 @@ const LoginPage = () => {
 };
 
 export default LoginPage;
-

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import api from '../services/api'; // Import the API service
 
 const AuthContext = createContext(null);
 
@@ -6,18 +7,16 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(() => {
     const storedToken = localStorage.getItem('token');
-    console.log('AuthContext: Initializing token from localStorage:', storedToken);
+    console.log('AuthContext: Initializing token from localStorage:', storedToken ? 'Present' : 'Not Present');
     return storedToken;
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const storedToken = localStorage.getItem('token');
-    console.log('AuthContext: useEffect - storedToken:', storedToken);
+    console.log('AuthContext: useEffect - storedToken:', storedToken ? 'Present' : 'Not Present');
     if (storedToken && storedToken !== token) { // Only update if different to avoid infinite loops
       setToken(storedToken);
-      // In a real app, you would decode the token or verify it with your backend
-      // to get actual user data.
       const storedUser = localStorage.getItem('user');
       if (storedUser) {
         try {
@@ -39,23 +38,20 @@ export const AuthProvider = ({ children }) => {
   }, [token]); // Depend on token to react to external changes
 
   const login = async (email, password) => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        if (email === 'test@example.com' && password === 'password') {
-          const newToken = 'dummy-jwt-token';
-          const userData = { id: '123', name: 'Test User', email: 'test@example.com', contact: '9876543210' };
-          setToken(newToken);
-          setUser(userData);
-          localStorage.setItem('token', newToken);
-          localStorage.setItem('user', JSON.stringify(userData));
-          console.log('AuthContext: Login successful, new token set:', newToken);
-          resolve({ success: true, user: userData, token: newToken });
-        } else {
-          console.log('AuthContext: Login failed for email:', email);
-          resolve({ success: false, message: 'Invalid credentials' });
-        }
-      }, 1000);
-    });
+    try {
+      const response = await api.login({ email, password });
+      if (response.token) {
+        setToken(response.token);
+        setUser(response.user); // Assuming api.login returns user data
+        localStorage.setItem('user', JSON.stringify(response.user));
+        console.log('AuthContext: Login successful, new token set:', response.token);
+        return { success: true, user: response.user, token: response.token };
+      }
+      return { success: false, message: 'Login failed: No token received.' };
+    } catch (error) {
+      console.error('AuthContext: Login failed:', error);
+      return { success: false, message: error.message || 'Login failed.' };
+    }
   };
 
   const logout = () => {

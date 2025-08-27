@@ -7,19 +7,26 @@ class ApiService {
   }
 
   getAuthToken() {
-    return localStorage.getItem('token');
+    const token = localStorage.getItem('token');
+    console.log('getAuthToken: Retrieved token:', token ? 'Present' : 'Not Present');
+    return token;
   }
 
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
     const token = this.getAuthToken();
 
+    const headers = {
+      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...options.headers, // Preserve existing headers
+    };
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const config = {
-      headers: {
-        ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...options.headers,
-      },
+      headers,
       credentials: 'include',
       ...options,
     };
@@ -97,52 +104,39 @@ class ApiService {
   // ✅ Template APIs
   // ========================
   async getTemplates() {
-    return this.request('/draft'); // GET /api/draft
+    return this.request('/templates'); // GET /api/templates
   }
 
   async getUserTemplates() {
-    return this.request('/draft/user'); // GET /api/draft/user
+    return this.request('/templates/user'); // GET /api/templates/user
   }
 
   async getTemplateById(id) {
-    return this.request(`/draft/${id}`); // GET /api/draft/:id
+    return this.request(`/templates/${id}`); // GET /api/templates/:id
   }
 
   async openTemplateForEditing(templateId) {
-    return this.request(`/draft/${templateId}/html`); // GET /api/draft/:id/html
+    return this.request(`/templates/${templateId}/html`); // GET /api/templates/:id/html
   }
 
   async saveUserDraft(templateId, name, file) {
-    const token = this.getAuthToken();
     const formData = new FormData();
     formData.append('templateId', templateId);
     formData.append('name', name);
-    formData.append('file', file);
+    formData.append('file', file); // Assuming backend expects 'file' for template drafts
 
-    const url = `${this.baseURL}/draft`; // Corrected URL
-
-    const response = await fetch(url, {
+    return this.request('/templates/draft', { // Use this.request
       method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       body: formData,
     });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
-
-    return await response.json();
   }
 
   async exportUserDraft(draftId) {
-    return this.request(`/draft/${draftId}/export`); // GET /api/draft/:id/export
+    return this.request(`/templates/${draftId}/export`); // GET /api/templates/:id/export
   }
 
   async addHtmlTemplate(templateData) {
-    return this.request('/draft/admin/html', { // Corrected URL
+    return this.request('/templates/admin/html', { // Corrected URL
       method: 'POST',
       body: JSON.stringify(templateData),
     });
@@ -189,6 +183,77 @@ class ApiService {
 
   async getPaymentPlans() {
     return this.request(`/payments/plans`);
+  }
+
+  // ========================
+  // ✅ User Resource and Plan Details APIs
+  // ========================
+  async getUserPlanDetails(service = '') {
+    const endpoint = service ? `/user-resources/plan-details?service=${service}` : `/user-resources/plan-details`;
+    return this.request(endpoint);
+  }
+
+  async getUserTransactions() {
+    return this.request(`/user-resources/transactions`);
+  }
+
+  async fetchPaymentHistory() {
+    return this.request('/payments/history');
+  }
+
+  // ========================
+  // ✅ File Management APIs
+  // ========================
+  async uploadSingleFile(file, folderPath = '') {
+    const formData = new FormData();
+    formData.append('files', file); // Changed from 'file' to 'files'
+    if (folderPath) {
+      formData.append('folderPath', folderPath);
+    }
+    return this.request('/files/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async uploadMultipleFiles(files, folderPath = '') {
+    const formData = new FormData();
+    Array.from(files).forEach(file => {
+      formData.append('files', file);
+    });
+    if (folderPath) {
+      formData.append('folderPath', folderPath);
+    }
+    return this.request('/files/upload-folder', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  // ========================
+  // ✅ Document Processing APIs
+  // ========================
+  async uploadDocumentForProcessing(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.request('/documents/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  // ========================
+  // ✅ Template Drafting APIs
+  // ========================
+  async saveUserDraftFromTemplate(file, templateId, name) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('templateId', templateId);
+    formData.append('name', name);
+    return this.request('/templates/draft', {
+      method: 'POST',
+      body: formData,
+    });
   }
 
   // ========================
