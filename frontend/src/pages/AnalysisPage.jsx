@@ -1,6 +1,8 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation, useParams } from 'react-router-dom'; // Import useLocation and useParams
+import { useLocation, useParams } from 'react-router-dom';
+import { useSidebar } from '../context/SidebarContext';
 import {
   Search,
   Send,
@@ -34,9 +36,26 @@ import {
   FileCheck
 } from 'lucide-react';
 
+// Animated text rendering utility
+const animateText = (text, setter, isAnimatingSetter, delay = 10) => {
+  let i = 0;
+  setter(''); // Clear previous content
+  isAnimatingSetter(true);
+  const interval = setInterval(() => {
+    if (i < text.length) {
+      setter(prev => prev + text.charAt(i));
+      i++;
+    } else {
+      clearInterval(interval);
+      isAnimatingSetter(false);
+    }
+  }, delay);
+};
+
 const AnalysisPage = () => {
-  const location = useLocation(); // Initialize useLocation
-  const { fileId: paramFileId, sessionId: paramSessionId } = useParams(); // Get fileId and sessionId from URL
+  const location = useLocation();
+  const { fileId: paramFileId, sessionId: paramSessionId } = useParams();
+  const { setIsSidebarHidden } = useSidebar();
   
   // State Management
   const [activeDropdown, setActiveDropdown] = useState('Summary');
@@ -60,21 +79,24 @@ const AnalysisPage = () => {
   const [citations, setCitations] = useState([]);
   const [keyIssues, setKeyIssues] = useState([]);
   const [chatHistory, setChatHistory] = useState([]);
-  const [fileId, setFileId] = useState(paramFileId || null); // Initialize with paramFileId
-  const [sessionId, setSessionId] = useState(paramSessionId || null); // Initialize with paramSessionId
+  const [fileId, setFileId] = useState(paramFileId || null);
+  const [sessionId, setSessionId] = useState(paramSessionId || null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processingStatus, setProcessingStatus] = useState(null);
-  const [currentResponse, setCurrentResponse] = useState(null);
+  const [currentResponse, setCurrentResponse] = useState(''); // FIXED: Changed to string
   const [animatedResponseContent, setAnimatedResponseContent] = useState('');
   const [isAnimatingResponse, setIsAnimatingResponse] = useState(false);
-  const [chatInput, setChatInput] = useState(''); // New state for chat input
-
-  // Refs
+  const [chatInput, setChatInput] = useState('');
+  const [showSplitView, setShowSplitView] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+ 
+   // Refs
   const fileInputRef = useRef(null);
   const dropdownRef = useRef(null);
+  const responseRef = useRef(null);
 
   // API Configuration
-  const API_BASE_URL = 'http://localhost:3000/api';
+  const API_BASE_URL = 'https://nexintelai-user.onrender.com/api';
   
   // Get auth token with comprehensive fallback options
   const getAuthToken = () => {
@@ -83,20 +105,17 @@ const AnalysisPage = () => {
       'auth_token', 'access_token', 'api_token', 'userToken'
     ];
     
-    // Check localStorage first
     for (const key of tokenKeys) {
       const token = localStorage.getItem(key);
       if (token) {
-        console.log(`Token found in localStorage with key: ${key}`);
         return token;
       }
     }
     
-    console.log('No authentication token found');
     return null;
   };
 
-  // API request helper with comprehensive error handling
+  // API request helper
   const apiRequest = async (url, options = {}) => {
     try {
       const token = getAuthToken();
@@ -104,54 +123,40 @@ const AnalysisPage = () => {
         'Content-Type': 'application/json',
       };
 
-      // Add authorization header if token exists
       if (token) {
         defaultHeaders['Authorization'] = `Bearer ${token}`;
       }
 
-      // Don't set Content-Type for FormData
       const headers = options.body instanceof FormData 
         ? (token ? { 'Authorization': `Bearer ${token}` } : {})
         : { ...defaultHeaders, ...options.headers };
-
-      console.log(`Making API request to: ${API_BASE_URL}${url}`);
-      console.log('Request headers:', headers);
 
       const response = await fetch(`${API_BASE_URL}${url}`, {
         ...options,
         headers,
       });
 
-      console.log(`Response status: ${response.status}`);
-
       if (!response.ok) {
         let errorData;
         try {
           errorData = await response.json();
-          console.error('Error response data:', errorData);
         } catch {
           errorData = { error: `HTTP error! status: ${response.status}` };
         }
         
-        // Handle specific HTTP status codes
         switch (response.status) {
           case 401:
             throw new Error('Authentication required. Please log in again.');
           case 403:
-            throw new Error('Access denied. You don\'t have permission to perform this action.');
+            throw new Error('Access denied.');
           case 404:
-            throw new Error('Resource not found. The requested endpoint may not exist.');
+            throw new Error('Resource not found.');
           case 413:
-            throw new Error('File too large. Please upload a smaller file.');
+            throw new Error('File too large.');
           case 415:
-            throw new Error('Unsupported file type. Please upload a PDF, DOC, DOCX, or TXT file.');
+            throw new Error('Unsupported file type.');
           case 429:
-            throw new Error('Too many requests. Please wait a moment and try again.');
-          case 500:
-          case 502:
-          case 503:
-          case 504:
-            throw new Error('Server error. Please try again later.');
+            throw new Error('Too many requests.');
           default:
             throw new Error(errorData.error || errorData.message || `Request failed with status ${response.status}`);
         }
@@ -159,18 +164,15 @@ const AnalysisPage = () => {
 
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
-        const data = await response.json();
-        console.log('Response data:', data);
-        return data;
+        return await response.json();
       }
       return response;
     } catch (error) {
-      console.error('API request failed:', error);
       throw error;
     }
   };
 
-  // File upload API call with progress tracking
+  // File upload with progress tracking
   const uploadDocument = async (file) => {
     try {
       setIsUploading(true);
@@ -180,9 +182,6 @@ const AnalysisPage = () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
-
-      // Create XMLHttpRequest for progress tracking
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         
@@ -190,14 +189,10 @@ const AnalysisPage = () => {
           if (event.lengthComputable) {
             const progress = Math.round((event.loaded / event.total) * 100);
             setUploadProgress(progress);
-            console.log(`Upload progress: ${progress}%`);
           }
         };
 
         xhr.onload = () => {
-          console.log('Upload response status:', xhr.status);
-          console.log('Upload response:', xhr.responseText);
-          
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
               const data = JSON.parse(xhr.responseText);
@@ -219,63 +214,42 @@ const AnalysisPage = () => {
                 content: data.html_content || data.content || 'Document uploaded. Processing...'
               });
               
-              if (data.html_content || data.content) {
-                setEditedContent(data.html_content || data.content);
-              }
+              setSuccess('Document uploaded successfully!');
               
-              setSuccess('Document uploaded successfully! Processing started...');
-              
-              // Start polling for processing status if the API supports it
               if (data.file_id) {
                 startProcessingStatusPolling(data.file_id);
               } else {
-                // If no processing status polling, mark as processed
                 setProcessingStatus({ status: 'processed' });
               }
               
               resolve(data);
             } catch (error) {
-              console.error('Failed to parse server response:', error);
-              reject(new Error('Failed to parse server response. Please try again.'));
+              reject(new Error('Failed to parse server response.'));
             }
           } else {
-            try {
-              const errorData = JSON.parse(xhr.responseText);
-              console.error('Upload error response:', errorData);
-              reject(new Error(errorData.error || errorData.message || `Upload failed with status ${xhr.status}`));
-            } catch {
-              reject(new Error(`Upload failed with status ${xhr.status}. Please check your connection and try again.`));
-            }
+            reject(new Error(`Upload failed with status ${xhr.status}`));
           }
         };
 
         xhr.onerror = () => {
-          console.error('Network error during upload');
-          reject(new Error('Network error occurred during upload. Please check your internet connection.'));
+          reject(new Error('Network error occurred during upload.'));
         };
 
         xhr.ontimeout = () => {
-          console.error('Upload timeout');
-          reject(new Error('Upload timeout. The file may be too large or connection is slow.'));
+          reject(new Error('Upload timeout.'));
         };
 
         const token = getAuthToken();
-        console.log('Using API endpoint:', `${API_BASE_URL}/doc/upload`);
-        console.log('Token available:', !!token);
-        
         xhr.open('POST', `${API_BASE_URL}/doc/upload`);
         
         if (token) {
           xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        } else {
-          console.warn('No authentication token found - proceeding without auth');
         }
         
-        xhr.timeout = 300000; // 5 minute timeout
+        xhr.timeout = 300000;
         xhr.send(formData);
       });
     } catch (error) {
-      console.error('Upload error:', error);
       setError(`Upload failed: ${error.message}`);
       throw error;
     } finally {
@@ -284,54 +258,48 @@ const AnalysisPage = () => {
     }
   };
 
-  // Get processing status with better error handling
+  // Processing status polling
   const getProcessingStatus = async (file_id) => {
     try {
       const data = await apiRequest(`/doc/status/${file_id}`);
       setProcessingStatus(data);
       
-      // Update document data with status
       if (data.status === 'processed') {
         setDocumentData(prev => ({
           ...prev,
           status: 'processed',
-          content: prev.content || 'Document processed successfully. Generate AI insights to view detailed analysis.'
+          content: prev?.content || 'Document processed successfully.'
         }));
       } else if (data.status === 'error') {
-        setError('Document processing failed. Please try uploading again.');
+        setError('Document processing failed.');
       }
       
       return data;
     } catch (error) {
-      console.error('Failed to get processing status:', error);
-      // Don't show error for status polling failures
       return null;
     }
   };
 
-  // Start polling for processing status
   const startProcessingStatusPolling = (file_id) => {
     let pollCount = 0;
-    const maxPolls = 150; // 5 minutes at 2-second intervals
+    const maxPolls = 150;
 
     const pollInterval = setInterval(async () => {
       pollCount++;
-      console.log(`Polling attempt ${pollCount}/${maxPolls}`);
-
       const status = await getProcessingStatus(file_id);
       
       if (status && (status.status === 'processed' || status.status === 'error')) {
         clearInterval(pollInterval);
         if (status.status === 'processed') {
-          setSuccess('Document processing completed! You can now analyze and chat with the document.');
+          setSuccess('Document processing completed!');
         } else {
-          setError('Document processing failed. Please try uploading again.');
+          setError('Document processing failed.');
         }
       } else if (pollCount >= maxPolls) {
         clearInterval(pollInterval);
-        setError('Document processing is taking longer than expected. You can try refreshing or re-uploading.');
+        setError('Document processing timeout.');
       }
-    }, 2000); // Poll every 2 seconds
+    }, 2000);
 
     return pollInterval;
   };
@@ -340,38 +308,61 @@ const AnalysisPage = () => {
   const formatKeyIssuesResponse = (issues) => {
     if (!issues || issues.length === 0) return 'No key issues identified in the document.';
     
-    let formatted = '# Key Legal Issues Identified\n\n';
+    let formatted = 'Key Legal Issues Identified\n\n';
     
     issues.forEach((issue, index) => {
-      formatted += `## ${index + 1}. ${issue.title}\n\n`;
-      formatted += `**Severity:** ${issue.severity.toUpperCase()}\n`;
-      formatted += `**Category:** ${issue.category}\n\n`;
+      formatted += `${index + 1}. ${issue.title}\n\n`;
+      formatted += `Severity: ${issue.severity.toUpperCase()}\n`;
+      formatted += `Category: ${issue.category}\n\n`;
       formatted += `${issue.description}\n\n`;
-      formatted += '---\n\n';
+      if (index < issues.length - 1) formatted += '---\n\n';
     });
     
     return formatted;
   };
 
-  // Analyze document API call with better error handling
+  // Toggle sidebar
+  const toggleSidebar = () => {
+    setShowSidebar(!showSidebar);
+  };
+
+  // FIXED: Updated animateResponse function
+  const animateResponse = (text) => {
+    setAnimatedResponseContent('');
+    setIsAnimatingResponse(true);
+    setShowSplitView(true);
+    
+    let i = 0;
+    const interval = setInterval(() => {
+      if (i < text.length) {
+        setAnimatedResponseContent(prev => prev + text.charAt(i));
+        i++;
+        
+        if (responseRef.current) {
+          responseRef.current.scrollTop = responseRef.current.scrollHeight;
+        }
+      } else {
+        clearInterval(interval);
+        setIsAnimatingResponse(false);
+      }
+    }, 20);
+    
+    return interval;
+  };
+
+  // FIXED: Analyze document function
   const analyzeDocument = async (file_id, analysisType = 'summary') => {
     try {
       setIsGeneratingInsights(true);
       setError(null);
-
-      console.log('Analyzing document with ID:', file_id, 'Type:', analysisType);
 
       const data = await apiRequest('/doc/analyze', {
         method: 'POST',
         body: JSON.stringify({ file_id: file_id, analysis_type: analysisType }),
       });
 
-      console.log('Analysis response:', data);
-
-      // Process the AI analysis response
       setAnalysisResults(data);
       
-      // Set current response based on analysis type
       let responseContent = '';
       
       switch (analysisType) {
@@ -407,7 +398,7 @@ const AnalysisPage = () => {
           break;
       }
 
-      // Extract and set legal grounds
+      // Process additional data
       if (data.legal_grounds) {
         const processedGrounds = Array.isArray(data.legal_grounds) 
           ? data.legal_grounds.map((ground, index) => ({
@@ -420,7 +411,6 @@ const AnalysisPage = () => {
         setLegalGrounds(processedGrounds);
       }
 
-      // Extract and set citations
       if (data.citations) {
         const processedCitations = Array.isArray(data.citations) 
           ? data.citations.map((citation, index) => ({
@@ -435,27 +425,31 @@ const AnalysisPage = () => {
         setCitations(processedCitations);
       }
 
-      // Set the current response
-      const currentResp = {
-        type: analysisType,
-        content: responseContent,
+      // Add to chat history
+      const newChat = {
+        id: Date.now(),
+        file_id: file_id,
+        session_id: sessionId,
+        question: `Generate ${analysisType.replace('_', ' ')} analysis`,
+        answer: responseContent,
+        display_text_left_panel: `AI generating ${analysisType.replace('_', ' ')}...`, // Fixed instruction
         timestamp: new Date().toISOString(),
-        data: data
+        confidence: data.confidence || 0.8,
+        type: 'analysis'
       };
+
+      setChatHistory(prev => [...prev, newChat]);
       
-      setCurrentResponse(currentResp);
+      // FIXED: Set current response as string
+      setCurrentResponse(responseContent);
       setHasResponse(true);
-      setShowSidebar(false);
-      setSuccess('Analysis completed successfully!');
-      
-      // Start animation
-      setAnimatedResponseContent('');
-      setIsAnimatingResponse(true);
-      animateText(responseContent, setAnimatedResponseContent, setIsAnimatingResponse);
+      setSuccess('Analysis completed!');
+
+      // FIXED: Use the proper animation function
+      animateResponse(responseContent);
 
       return data;
     } catch (error) {
-      console.error('Analysis error:', error);
       setError(`Analysis failed: ${error.message}`);
       throw error;
     } finally {
@@ -463,73 +457,51 @@ const AnalysisPage = () => {
     }
   };
 
-  // Chat with document API call with better error handling
+  // FIXED: Chat with document function
   const chatWithDocument = async (file_id, question, currentSessionId) => {
     try {
       setIsLoading(true);
       setError(null);
-
-      console.log('Sending chat request:', { file_id, question, currentSessionId });
 
       const data = await apiRequest('/doc/chat', {
         method: 'POST',
         body: JSON.stringify({
           file_id: file_id,
           question: question.trim(),
-          session_id: currentSessionId // Pass sessionId to backend
+          session_id: currentSessionId
         }),
       });
 
-      console.log('Chat response:', data);
-
       const response = data.answer || data.response || 'No response received';
-      const newSessionId = data.session_id || currentSessionId; // Use new session ID if provided
+      const newSessionId = data.session_id || currentSessionId;
 
-      // Create new chat entry
       const newChat = {
-        id: Date.now(), // Unique ID for React key
+        id: Date.now(),
         file_id: file_id,
-        session_id: newSessionId, // Use the new or existing session ID
+        session_id: newSessionId,
         question: question.trim(),
         answer: response,
+        display_text_left_panel: question.trim(), // User's question for chat
         timestamp: new Date().toISOString(),
         used_chunk_ids: data.used_chunk_ids || [],
-        confidence: data.confidence || 0.8
+        confidence: data.confidence || 0.8,
+        type: 'chat'
       };
 
-      // Update chat history
-      setChatHistory(prev => {
-        const updated = [...prev, newChat];
-        console.log('Updated chat history:', updated);
-        return updated;
-      });
-      
-      // Update the sessionId state with the new or existing session ID
+      setChatHistory(prev => [...prev, newChat]);
       setSessionId(newSessionId);
-
-      // Set current response
-      const currentResp = {
-        type: 'chat',
-        content: response,
-        question: question.trim(),
-        timestamp: new Date().toISOString(),
-        confidence: data.confidence || 0.8
-      };
+      setChatInput('');
       
-      setCurrentResponse(currentResp);
+      // FIXED: Set current response as string
+      setCurrentResponse(response);
       setHasResponse(true);
-      setShowSidebar(false);
-      setChatInput(''); // Clear chat input
-      setSuccess('Question answered successfully!');
-      
-      // Start animation
-      setAnimatedResponseContent('');
-      setIsAnimatingResponse(true);
-      animateText(response, setAnimatedResponseContent, setIsAnimatingResponse);
+      setSuccess('Question answered!');
+
+      // FIXED: Use the proper animation function
+      animateResponse(response);
 
       return data;
     } catch (error) {
-      console.error('Chat error:', error);
       setError(`Chat failed: ${error.message}`);
       throw error;
     } finally {
@@ -537,12 +509,11 @@ const AnalysisPage = () => {
     }
   };
 
-  // Handle file upload with validation
+  // Handle file upload
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Validate file type
     const allowedTypes = [
       'application/pdf',
       'application/msword',
@@ -555,84 +526,63 @@ const AnalysisPage = () => {
       return;
     }
 
-    // Validate file size (10MB limit)
-    // const maxSize = 10 * 1024 * 1024; // 10MB
-    // if (file.size > maxSize) {
-    //   setError('File size must be less than 10MB');
-    //   return;
-    // }
-    const maxSize = 100 * 1024 * 1024; // 100MB
-if (file.size > maxSize) {
-  setError('File size must be less than 100MB');
-  return;
-}
-
+    const maxSize = 100 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setError('File size must be less than 100MB');
+      return;
+    }
 
     try {
       await uploadDocument(file);
     } catch (error) {
-      // Error already handled in uploadDocument
-      console.error('File upload failed:', error);
+      // Error already handled
     }
 
-    // Clear the input
     event.target.value = '';
   };
 
-  // Handle search/chat with validation
-  // Handle search/chat with validation
+  // Handle chat submit
   const handleChatSubmit = async (e) => {
     e.preventDefault();
     
     if (!chatInput.trim()) {
-      setError('Please enter a question to chat.');
+      setError('Please enter a question.');
       return;
     }
     
     if (!fileId) {
-      setError('No document selected. Please upload a document or navigate from chat history.');
+      setError('Please upload a document first.');
       return;
     }
     
-    // Check if document is processed before allowing chat
     if (processingStatus?.status === 'processing') {
-      setError('Please wait for document processing to complete before asking questions.');
-      return;
-    }
-    
-    if (processingStatus?.status === 'error') {
-      setError('Document processing failed. Please upload the document again.');
+      setError('Please wait for document processing to complete.');
       return;
     }
     
     try {
       await chatWithDocument(fileId, chatInput, sessionId);
     } catch (error) {
-      console.error('Chat submission failed:', error);
+      // Error already handled
     }
   };
 
-  // Handle analysis button click
+  // Handle analysis click
   const handleAnalysisClick = async () => {
     if (!fileId) {
-      setError('No document selected. Please upload a document or navigate from chat history.');
+      setError('Please upload a document first.');
       return;
     }
 
     if (processingStatus?.status === 'processing') {
-      setError('Please wait for document processing to complete before generating insights.');
-      return;
-    }
-    
-    if (processingStatus?.status === 'error') {
-      setError('Document processing failed. Please upload the document again.');
+      setError('Please wait for document processing to complete.');
       return;
     }
 
     try {
       await analyzeDocument(fileId, activeDropdown.toLowerCase().replace(' ', '_'));
     } catch (error) {
-      console.error('Analysis generation failed:', error);
+      // Error already handled
     }
   };
 
@@ -642,16 +592,8 @@ if (file.size > maxSize) {
     setShowDropdown(false);
   };
 
-  // Toggle sidebar
-  const toggleSidebar = () => {
-    setShowSidebar(!showSidebar);
-  };
-
-  // Add a function to clear all chat data (call this when starting a new chat)
+  // Clear all chat data
   const clearAllChatData = () => {
-    console.log('Clearing all chat data...');
-    
-    // Clear state
     setChatHistory([]);
     setDocumentData(null);
     setFileId(null);
@@ -660,23 +602,22 @@ if (file.size > maxSize) {
     setLegalGrounds([]);
     setCitations([]);
     setKeyIssues([]);
-    setCurrentResponse(null);
+    setCurrentResponse(''); // FIXED: Clear as string
     setHasResponse(false);
-    setSearchQuery('');
+    setChatInput('');
     setProcessingStatus(null);
     setError(null);
-    setAnimatedResponseContent(''); // Clear animated content
-    setIsAnimatingResponse(false); // Stop animation
-    
-    // Clear localStorage
+    setAnimatedResponseContent('');
+    setIsAnimatingResponse(false);
+    setShowSplitView(false);
+
     const keysToRemove = [
       'chatHistory', 'currentResponse', 'hasResponse', 'documentData',
       'fileId', 'analysisResults', 'caseSummary', 'legalGrounds',
-      'citations', 'keyIssues', 'processingStatus', 'animatedResponseContent', 'sessionId' // Add animated content and sessionId to clear
+      'citations', 'keyIssues', 'processingStatus', 'animatedResponseContent', 'sessionId'
     ];
     keysToRemove.forEach(key => localStorage.removeItem(key));
     
-    // Generate new session ID
     const newSessionId = `session-${Date.now()}`;
     setSessionId(newSessionId);
     localStorage.setItem('sessionId', newSessionId);
@@ -684,7 +625,7 @@ if (file.size > maxSize) {
     setSuccess('New chat session started!');
   };
 
-  // Add this function to manually trigger a new chat (you can call this from a button)
+  // Start new chat
   const startNewChat = () => {
     clearAllChatData();
   };
@@ -706,7 +647,22 @@ if (file.size > maxSize) {
     }
   };
 
-  // Professional document-style text renderer with proper numbering
+  // FIXED: Professional document-style text renderer
+  // Helper function to highlight text
+  const highlightText = (text, query) => {
+    if (!query || !text) return text;
+    const parts = text.split(new RegExp(`(${query})`, 'gi'));
+    return parts.map((part, i) =>
+      part.toLowerCase() === query.toLowerCase() ? (
+        <span key={i} className="bg-yellow-200 font-semibold text-black">
+          {part}
+        </span>
+      ) : (
+        part
+      )
+    );
+  };
+
   const renderText = (text) => {
     if (!text) return '';
     
@@ -716,7 +672,7 @@ if (file.size > maxSize) {
     let tableHeaders = [];
     let tableRows = [];
     let currentListLevel = 0;
-    let listCounters = [0]; // Track numbering for nested lists
+    let listCounters = [0];
     
     const finishTable = () => {
       if (tableHeaders.length > 0 && tableRows.length > 0) {
@@ -761,23 +717,18 @@ if (file.size > maxSize) {
       const line = lines[i];
       const trimmedLine = line.trim();
       
-      // Handle table rows
       if (line.includes('|') && line.trim().startsWith('|')) {
         resetListCounters();
         const cells = line.split('|').map(cell => cell.trim()).filter(cell => cell !== '');
         
         if (cells.length > 0) {
           if (!currentTable) {
-            // First row becomes headers
             tableHeaders = cells;
             currentTable = 'active';
           } else {
-            // Check if it's a separator row (contains dashes)
             if (cells.some(cell => cell.includes('-'))) {
-              // Skip separator row
               continue;
             } else {
-              // Add data row
               tableRows.push(cells);
             }
           }
@@ -785,27 +736,23 @@ if (file.size > maxSize) {
         continue;
       }
       
-      // If we hit a non-table line and have a table in progress, finish it
       if (currentTable && !line.includes('|')) {
         finishTable();
       }
       
-      // Handle headers
       if (trimmedLine.startsWith('#')) {
         resetListCounters();
         const level = trimmedLine.match(/^#+/)[0].length;
         const content = trimmedLine.replace(/^#+\s*/, '');
-        const className = level === 1 ? 'text-2xl font-bold mb-6 mt-8 text-black border-b-2 border-gray-300 pb-2' : 
-                         level === 2 ? 'text-xl font-bold mb-4 mt-6 text-black' : 
+        const className = level === 1 ? 'text-2xl font-bold mb-6 mt-8 text-black border-b-2 border-gray-300 pb-2' :
+                         level === 2 ? 'text-xl font-bold mb-4 mt-6 text-black' :
                          level === 3 ? 'text-lg font-bold mb-3 mt-4 text-black' :
                          'text-base font-bold mb-2 mt-3 text-black';
         elements.push(React.createElement(`h${Math.min(level, 6)}`, { key: i, className }, content));
         continue;
       }
       
-      // Handle bullet points with automatic numbering - improved detection
       if (trimmedLine.startsWith('*') || trimmedLine.startsWith('-') || trimmedLine.startsWith('•') || /^\d+\./.test(trimmedLine)) {
-        // Extract content after bullet marker
         let content = trimmedLine;
         if (trimmedLine.startsWith('*')) {
           content = trimmedLine.replace(/^\*+\s*/, '');
@@ -820,43 +767,38 @@ if (file.size > maxSize) {
         const indent = line.length - trimmedLine.length;
         const level = Math.floor(indent / 2);
         
-        // Adjust list counters for current level
         if (level > currentListLevel) {
-          // Going deeper - add new counter
           while (listCounters.length <= level) {
             listCounters.push(0);
           }
         } else if (level < currentListLevel) {
-          // Going back up - reset deeper counters
           listCounters = listCounters.slice(0, level + 1);
         }
         
         currentListLevel = level;
         listCounters[level]++;
         
-        // Create numbering based on level
         let numberPrefix;
         if (level === 0) {
           numberPrefix = `${listCounters[level]}.`;
         } else if (level === 1) {
-          numberPrefix = `${String.fromCharCode(96 + listCounters[level])}.`; // a, b, c...
+          numberPrefix = `${String.fromCharCode(96 + listCounters[level])}.`;
         } else if (level === 2) {
           numberPrefix = `${listCounters[level]}.`;
         } else {
           numberPrefix = `${String.fromCharCode(96 + listCounters[level])}.`;
         }
         
-        const marginClass = level === 0 ? 'ml-0' : 
-                           level === 1 ? 'ml-6' : 
+        const marginClass = level === 0 ? 'ml-0' :
+                           level === 1 ? 'ml-6' :
                            level === 2 ? 'ml-12' : 'ml-18';
         
-        // Process content for bold text
         let processedContent;
         if (content.includes('**')) {
           const parts = content.split(/(\*\*.*?\*\*)/);
-          processedContent = parts.map((part, j) => 
-            part.startsWith('**') && part.endsWith('**') ? 
-              React.createElement('strong', { key: j, className: 'font-bold text-black' }, part.slice(2, -2)) : 
+          processedContent = parts.map((part, j) =>
+            part.startsWith('**') && part.endsWith('**') ?
+              React.createElement('strong', { key: j, className: 'font-bold text-black' }, part.slice(2, -2)) :
               part
           );
         } else {
@@ -872,15 +814,14 @@ if (file.size > maxSize) {
         continue;
       }
       
-      // Handle bold text
       if (trimmedLine.includes('**')) {
         resetListCounters();
         const parts = trimmedLine.split(/(\*\*.*?\*\*)/);
         elements.push(
-          React.createElement('p', { key: i, className: 'mb-4 leading-relaxed text-black' }, 
-            parts.map((part, j) => 
-              part.startsWith('**') && part.endsWith('**') ? 
-                React.createElement('strong', { key: j, className: 'font-bold text-black' }, part.slice(2, -2)) : 
+          React.createElement('p', { key: i, className: 'mb-4 leading-relaxed text-black' },
+            parts.map((part, j) =>
+              part.startsWith('**') && part.endsWith('**') ?
+                React.createElement('strong', { key: j, className: 'font-bold text-black' }, part.slice(2, -2)) :
                 part
             )
           )
@@ -888,26 +829,22 @@ if (file.size > maxSize) {
         continue;
       }
       
-      // Handle horizontal rules
       if (trimmedLine === '---') {
         resetListCounters();
         elements.push(React.createElement('hr', { key: i, className: 'my-6 border-gray-400' }));
         continue;
       }
       
-      // Handle regular paragraphs
       if (trimmedLine) {
         resetListCounters();
         elements.push(
           React.createElement('p', { key: i, className: 'mb-4 leading-relaxed text-black text-justify' }, trimmedLine)
         );
       } else {
-        // Empty line - add some spacing
         elements.push(React.createElement('div', { key: i, className: 'mb-2' }));
       }
     }
     
-    // Finish any remaining table
     if (currentTable) {
       finishTable();
     }
@@ -929,43 +866,37 @@ if (file.size > maxSize) {
     };
   }, []);
 
-  // Save currentResponse to localStorage whenever it changes
+  // FIXED: Save currentResponse as string
   useEffect(() => {
     if (currentResponse) {
-      console.log('Current response changed, saving to localStorage:', currentResponse);
-      localStorage.setItem('currentResponse', JSON.stringify(currentResponse));
-      localStorage.setItem('animatedResponseContent', animatedResponseContent); // Save animated content
+      localStorage.setItem('currentResponse', currentResponse);
+      localStorage.setItem('animatedResponseContent', animatedResponseContent);
     }
   }, [currentResponse, animatedResponseContent]);
 
-  // Save hasResponse state
+  // Save other state
   useEffect(() => {
     localStorage.setItem('hasResponse', JSON.stringify(hasResponse));
   }, [hasResponse]);
 
-  // Save documentData
   useEffect(() => {
     if (documentData) {
-      console.log('Document data changed, saving to localStorage:', documentData);
       localStorage.setItem('documentData', JSON.stringify(documentData));
     }
   }, [documentData]);
 
-  // Save fileId
   useEffect(() => {
     if (fileId) {
       localStorage.setItem('fileId', fileId);
     }
   }, [fileId]);
 
-  // Save analysis results
   useEffect(() => {
     if (analysisResults) {
       localStorage.setItem('analysisResults', JSON.stringify(analysisResults));
     }
   }, [analysisResults]);
 
-  // Save other analysis data
   useEffect(() => {
     if (caseSummary) {
       localStorage.setItem('caseSummary', JSON.stringify(caseSummary));
@@ -996,12 +927,9 @@ if (file.size > maxSize) {
     }
   }, [processingStatus]);
 
-  // Combined effect for loading/initializing chat and handling new chat navigation
+  // FIXED: Combined effect for loading/initializing
   useEffect(() => {
-    console.log('AnalysisPage useEffect triggered. location.state:', location.state);
-
     if (location.state?.newChat) {
-      console.log('Detected newChat state. Starting new chat session...');
       const newSessionId = `session-${Date.now()}`;
       setSessionId(newSessionId);
       localStorage.setItem('sessionId', newSessionId);
@@ -1015,14 +943,16 @@ if (file.size > maxSize) {
       setLegalGrounds([]);
       setCitations([]);
       setKeyIssues([]);
-      setCurrentResponse(null);
+      setCurrentResponse(''); // FIXED: Clear as string
       setHasResponse(false);
-      setChatInput(''); // Clear chat input
+      setChatInput('');
       setProcessingStatus(null);
       setError(null);
+      setAnimatedResponseContent(''); // Clear animated content
+      setIsAnimatingResponse(false);
+      setShowSplitView(false);
       setSuccess('New chat session started!');
       
-      // Clear localStorage for new session
       const keysToRemove = [
         'chatHistory', 'currentResponse', 'hasResponse', 'documentData',
         'fileId', 'analysisResults', 'caseSummary', 'legalGrounds',
@@ -1030,178 +960,139 @@ if (file.size > maxSize) {
       ];
       keysToRemove.forEach(key => localStorage.removeItem(key));
       
-      // Clear the state so it doesn't trigger on subsequent renders
       window.history.replaceState({}, document.title);
     } else if (paramFileId && paramSessionId) {
-      // If navigated from chat history, load specific chat session
-      console.log(`Navigated with fileId: ${paramFileId} and sessionId: ${paramSessionId}. Fetching chat history...`);
       setFileId(paramFileId);
       setSessionId(paramSessionId);
 
       const fetchSpecificChatHistory = async () => {
         try {
-          // Assuming an API endpoint to fetch chat history for a specific file and session
-          // Fetch all chats for the specific file
           const response = await apiRequest(`/chat/${paramFileId}`);
           const filteredChats = response.filter(chat => chat.session_id === paramSessionId);
           setChatHistory(filteredChats || []);
-          // Assuming documentData needs to be fetched separately or is part of the chat history response
-          // For now, we'll assume the first chat in the filtered history can provide file_id for documentData
+          
           if (filteredChats.length > 0) {
-            // You might need a separate API call to get full document details if not returned with chat history
-            // For now, setting a placeholder documentData
             setDocumentData({
               id: paramFileId,
               title: `Document for Session ${paramSessionId}`,
               originalName: `Document for Session ${paramSessionId}`,
-              size: 0, // Placeholder
-              type: 'unknown', // Placeholder
-              uploadedAt: new Date().toISOString(), // Placeholder
-              status: 'processed', // Assume processed for existing chats
-              content: 'Document content will be loaded here if available.' // Placeholder
+              size: 0,
+              type: 'unknown',
+              uploadedAt: new Date().toISOString(),
+              status: 'processed',
+              content: 'Document content will be loaded here if available.'
             });
             setFileId(paramFileId);
             setSessionId(paramSessionId);
-            setProcessingStatus({ status: 'processed' }); // Explicitly set status to processed
+            setProcessingStatus({ status: 'processed' });
             setHasResponse(true);
+            
             const lastChat = filteredChats[filteredChats.length - 1];
-            setCurrentResponse({
-              type: 'chat',
-              content: lastChat.answer,
-              question: lastChat.question,
-              timestamp: lastChat.created_at, // Use created_at from API
-              confidence: lastChat.confidence || 0.8
-            });
+            // FIXED: Set as string
+            setCurrentResponse(lastChat.answer);
             setAnimatedResponseContent(lastChat.answer);
             setIsAnimatingResponse(false);
+            setShowSplitView(true); // Show split view for loaded chats
           } else {
             setHasResponse(false);
             setError('No chat history found for this session.');
-            setProcessingStatus({ status: 'error' }); // Set status to error if no history found
+            setProcessingStatus({ status: 'error' });
           }
           setSuccess('Chat history loaded successfully!');
         } catch (err) {
-          console.error('Error fetching specific chat history:', err);
           setError(`Failed to load chat history: ${err.message}`);
         }
       };
       fetchSpecificChatHistory();
 
     } else {
-      // If not a new chat or specific chat, try to load from localStorage
-      console.log('No newChat state or URL params. Attempting to load from localStorage...');
-      
       try {
-        // Load chat history
         const savedChatHistory = localStorage.getItem('chatHistory');
         if (savedChatHistory) {
           const parsedHistory = JSON.parse(savedChatHistory);
           setChatHistory(parsedHistory);
-          console.log('Chat history loaded:', parsedHistory);
         }
 
-        // Load current session ID
         const savedSessionId = localStorage.getItem('sessionId');
         if (savedSessionId) {
           setSessionId(savedSessionId);
-          console.log('Current session ID loaded:', savedSessionId);
         } else {
-          // Initialize a new chat session if none exists
           const newSessionId = `session-${Date.now()}`;
           setSessionId(newSessionId);
           localStorage.setItem('sessionId', newSessionId);
-          console.log('New session ID generated and saved:', newSessionId);
         }
 
-        // Load current response
+        // FIXED: Load current response as string
         const savedCurrentResponse = localStorage.getItem('currentResponse');
         const savedAnimatedResponseContent = localStorage.getItem('animatedResponseContent');
         if (savedCurrentResponse) {
-          const parsedResponse = JSON.parse(savedCurrentResponse);
-          setCurrentResponse(parsedResponse);
-          console.log('Current response loaded:', parsedResponse);
+          setCurrentResponse(savedCurrentResponse); // Direct string assignment
           if (savedAnimatedResponseContent) {
             setAnimatedResponseContent(savedAnimatedResponseContent);
-            setIsAnimatingResponse(false); // No animation needed on load
+            setShowSplitView(true); // Show split view if there's content
           } else {
-            setAnimatedResponseContent(parsedResponse.content); // Fallback to full content
+            setAnimatedResponseContent(savedCurrentResponse);
           }
+          setIsAnimatingResponse(false);
         }
 
-        // Load hasResponse state
         const savedHasResponse = localStorage.getItem('hasResponse');
         if (savedHasResponse) {
           const parsedHasResponse = JSON.parse(savedHasResponse);
           setHasResponse(parsedHasResponse);
-          console.log('HasResponse state loaded:', parsedHasResponse);
+          if (parsedHasResponse) {
+            setShowSplitView(true); // Show split view if there's a response
+          }
         }
 
-        // Load document data
         const savedDocumentData = localStorage.getItem('documentData');
         if (savedDocumentData) {
           const parsedDocumentData = JSON.parse(savedDocumentData);
           setDocumentData(parsedDocumentData);
-          console.log('Document data loaded:', parsedDocumentData);
         }
 
-        // Load file ID
         const savedFileId = localStorage.getItem('fileId');
         if (savedFileId) {
           setFileId(savedFileId);
-          console.log('File ID loaded:', savedFileId);
         }
 
-        // Load analysis results
         const savedAnalysisResults = localStorage.getItem('analysisResults');
         if (savedAnalysisResults) {
           const parsedResults = JSON.parse(savedAnalysisResults);
           setAnalysisResults(parsedResults);
-          console.log('Analysis results loaded:', parsedResults);
         }
 
-        // Load case summary
         const savedCaseSummary = localStorage.getItem('caseSummary');
         if (savedCaseSummary) {
           const parsedSummary = JSON.parse(savedCaseSummary);
           setCaseSummary(parsedSummary);
-          console.log('Case summary loaded:', parsedSummary);
         }
 
-        // Load legal grounds
         const savedLegalGrounds = localStorage.getItem('legalGrounds');
         if (savedLegalGrounds) {
           const parsedGrounds = JSON.parse(savedLegalGrounds);
           setLegalGrounds(parsedGrounds);
-          console.log('Legal grounds loaded:', parsedGrounds);
         }
 
-        // Load citations
         const savedCitations = localStorage.getItem('citations');
         if (savedCitations) {
           const parsedCitations = JSON.parse(savedCitations);
           setCitations(parsedCitations);
-          console.log('Citations loaded:', parsedCitations);
         }
 
-        // Load key issues
         const savedKeyIssues = localStorage.getItem('keyIssues');
         if (savedKeyIssues) {
           const parsedIssues = JSON.parse(savedKeyIssues);
           setKeyIssues(parsedIssues);
-          console.log('Key issues loaded:', parsedIssues);
         }
 
-        // Load processing status
         const savedProcessingStatus = localStorage.getItem('processingStatus');
         if (savedProcessingStatus) {
           const parsedStatus = JSON.parse(savedProcessingStatus);
           setProcessingStatus(parsedStatus);
-          console.log('Processing status loaded:', parsedStatus);
         }
 
       } catch (error) {
-        console.error('Error loading data from localStorage:', error);
-        // If there's an error loading, start fresh but don't clear existing data
         if (!sessionId) {
           const newSessionId = `session-${Date.now()}`;
           setSessionId(newSessionId);
@@ -1209,11 +1100,19 @@ if (file.size > maxSize) {
         }
       }
     }
-  }, [location.state, paramFileId, paramSessionId]); // Add paramFileId and paramSessionId to dependencies
-
-  // Save chat history to localStorage whenever it changes
+  }, [location.state, paramFileId, paramSessionId]);
+ 
+   // Automatically close sidebar when split view is active
   useEffect(() => {
-    console.log('Chat history changed, saving to localStorage:', chatHistory);
+    if (showSplitView) {
+      setIsSidebarHidden(true);
+    } else {
+      setIsSidebarHidden(false);
+    }
+  }, [showSplitView, setIsSidebarHidden]);
+
+   // Save chat history to localStorage whenever it changes
+  useEffect(() => {
     localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
   }, [chatHistory]);
 
@@ -1239,12 +1138,11 @@ if (file.size > maxSize) {
     <div className="flex h-screen bg-white">
       {/* Error Messages */}
       {error && (
-        <div className="fixed top-4 right-4 z-50 max-w-md">
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg flex items-start space-x-2">
+        <div className="fixed top-4 right-4 z-50 max-w-sm">
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg shadow-lg flex items-start space-x-2">
             <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-sm font-medium">Error</p>
-              <p className="text-xs mt-1">{error}</p>
+              <p className="text-sm">{error}</p>
             </div>
             <button
               onClick={() => setError(null)}
@@ -1258,8 +1156,8 @@ if (file.size > maxSize) {
 
       {/* Success Messages */}
       {success && (
-        <div className="fixed top-4 right-4 z-50 max-w-md">
-          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2">
+        <div className="fixed top-4 right-4 z-50 max-w-sm">
+          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2">
             <CheckCircle className="h-5 w-5 flex-shrink-0" />
             <span className="text-sm">{success}</span>
             <button
@@ -1278,7 +1176,7 @@ if (file.size > maxSize) {
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <div className="text-center">
               <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-              <h3 className="text-lg font-semibold mb-2">Uploading Document</h3>
+              <h3 className="text-lg font-semibold mb-2 text-gray-900">Uploading Document</h3>
               <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
                 <div
                   className="bg-blue-600 h-2 rounded-full transition-all duration-300"
@@ -1291,306 +1189,374 @@ if (file.size > maxSize) {
         </div>
       )}
 
-      {/* Sidebar */}
-      <div className={`${showSidebar ? 'w-80' : 'w-0'} transition-all duration-300 overflow-hidden border-r border-gray-200 bg-gray-50 flex flex-col`}>
-        {/* Sidebar Header */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Document Analysis</h2>
-            <button
-              onClick={toggleSidebar}
-              className="p-2 hover:bg-gray-200 rounded-lg"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </button>
+      {/* Conditional Rendering for Single Page vs Split View */}
+      {!hasResponse && !documentData ? (
+        // Single Page View: Only chat input area
+        <div className="flex flex-col items-center justify-center h-full w-full">
+          <div className="text-center max-w-2xl px-6 mb-12">
+            <FileText className="h-20 w-20 mx-auto mb-6 text-gray-300" />
+            <h3 className="text-3xl font-bold mb-4 text-gray-900">Start a New Legal Document Analysis</h3>
+            <p className="text-gray-600 text-xl leading-relaxed">
+              Upload a legal document or ask a question to begin your AI-powered analysis.
+            </p>
           </div>
-          
-          {/* Document Info */}
-          {documentData && (
-            <div className="bg-white rounded-lg p-4 shadow-sm">
-              <div className="flex items-center space-x-3 mb-3">
-                <FileCheck className="h-8 w-8 text-blue-600" />
-                <div>
-                  <h3 className="font-medium text-gray-900 truncate">{documentData.originalName}</h3>
-                  <p className="text-sm text-gray-500">{formatFileSize(documentData.size)}</p>
+          <div className="w-full max-w-4xl px-6">
+            <form onSubmit={handleChatSubmit} className="mx-auto">
+              <div className="flex items-center space-x-3 bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 focus-within:border-blue-300 focus-within:bg-white focus-within:shadow-sm">
+                {/* Upload Button */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+                  title="Upload Document"
+                >
+                  {isUploading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Paperclip className="h-5 w-5" />
+                  )}
+                </button>
+                
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.txt"
+                  onChange={handleFileUpload}
+                  disabled={isUploading}
+                />
+
+                {/* Analysis Dropdown */}
+                <div className="relative flex-shrink-0" ref={dropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setShowDropdown(!showDropdown)}
+                    disabled={!fileId || processingStatus?.status !== 'processed' || isLoading || isGeneratingInsights}
+                    className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <BookOpen className="h-4 w-4" />
+                    <span>{activeDropdown}</span>
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+
+                  {showDropdown && (
+                    <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
+                      {dropdownOptions.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => handleDropdownSelect(option)}
+                          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg"
+                        >
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
+                {/* Generate Analysis Button */}
+                <button
+                  type="button"
+                  onClick={handleAnalysisClick}
+                  disabled={isGeneratingInsights || !fileId || processingStatus?.status !== 'processed' || isLoading}
+                  className="p-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-lg transition-colors flex-shrink-0"
+                  title="Generate Analysis"
+                >
+                  {isGeneratingInsights ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Send className="h-5 w-5" />
+                  )}
+                </button>
+
+                {/* Chat Input */}
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder={fileId ? "Message Legal Assistant..." : "Upload a document to get started"}
+                  className="flex-1 bg-transparent border-none outline-none text-gray-900 placeholder-gray-500 text-[15px] font-medium py-2 min-w-0"
+                  disabled={isLoading || !fileId || processingStatus?.status !== 'processed' || isGeneratingInsights}
+                />
+
+                {/* Send Button */}
+                <button
+                  type="submit"
+                  disabled={isLoading || !chatInput.trim() || !fileId || processingStatus?.status !== 'processed' || isGeneratingInsights}
+                  className="p-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-colors flex-shrink-0"
+                  title="Send Message"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Send className="h-5 w-5" />
+                  )}
+                </button>
               </div>
               
-              {processingStatus && (
-                <div className="mb-3">
-                  <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    processingStatus.status === 'processed' 
-                      ? 'bg-green-100 text-green-800'
-                      : processingStatus.status === 'processing'
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    {processingStatus.status === 'processing' && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
-                    {processingStatus.status.charAt(0).toUpperCase() + processingStatus.status.slice(1)}
+              {/* Processing Status */}
+              {documentData && processingStatus?.status === 'processing' && (
+                <div className="mt-3 text-center">
+                  <div className="inline-flex items-center px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Processing document...
+                    {processingStatus.processing_progress && (
+                      <span className="ml-1">({Math.round(processingStatus.processing_progress)}%)</span>
+                    )}
                   </div>
                 </div>
               )}
-              
-              <div className="text-xs text-gray-500 space-y-1">
-                <p>Uploaded: {formatDate(documentData.uploadedAt)}</p>
-                <p>Type: {documentData.type}</p>
-                <p>ID: {documentData.id}</p>
-              </div>
-            </div>
-          )}
-        </div>
 
-        {/* Sidebar Content */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {/* Chat History */}
-          {chatHistory.length > 0 && (
-            <div className="space-y-4">
-              <h3 className="font-medium text-gray-900">Recent Conversations</h3>
-              <div className="space-y-3">
-                {chatHistory.filter(chat => chat.session_id === sessionId).slice(-5).map((chat) => (
-                  <div key={chat.id} className="bg-white rounded-lg p-3 shadow-sm">
-                    <p className="text-sm text-gray-700 mb-2">{chat.question}</p>
-                    <p className="text-xs text-gray-500 truncate">{chat.answer.substring(0, 100)}...</p>
-                    <p className="text-xs text-gray-400 mt-1">{formatDate(chat.timestamp)}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        {/* Top Bar */}
-        <div className="border-b border-gray-200 p-4">
-          <div className="flex items-center space-x-4">
-            {!showSidebar && (
-              <button
-                onClick={toggleSidebar}
-                className="p-2 hover:bg-gray-100 rounded-lg"
-              >
-                <ChevronRight className="h-5 w-5" />
-              </button>
-            )}
-            <h1 className="text-xl font-semibold text-gray-900">Legal Document Analysis</h1>
-          </div>
-        </div>
-
-        {/* Content Area */}
-        <div className="flex-1 flex">
-          {/* Right Panel - Response */}
-          <div className="w-full overflow-y-auto">
-            <div className="p-6">
-              {chatHistory.length > 0 || currentResponse ? (
-                <div className="bg-white border border-gray-200 rounded-lg p-8 shadow-sm flex flex-col h-full">
-                  <h2 className="text-xl font-bold text-black mb-6 border-b border-gray-200 pb-4">Conversation History</h2>
-                  <div className="flex-1 overflow-y-auto pr-4 -mr-4"> {/* Added pr-4 and -mr-4 for scrollbar */}
-                    {chatHistory.map((chat, index) => (
-                      <div key={chat.id || index} className="mb-8">
-                        <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                          <p className="text-sm font-bold text-black mb-2">You:</p>
-                          <p className="text-black leading-relaxed">{chat.question}</p>
-                        </div>
-                        <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                          <p className="text-sm font-bold text-black mb-2">AI:</p>
-                          <div className="prose max-w-none text-black leading-relaxed">
-                            {renderText(chat.answer)}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* Display current response if it's not already part of chatHistory */}
-                    {currentResponse && (
-                      <div className="mb-8">
-                        {currentResponse.type === 'chat' && currentResponse.question && (
-                          <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                            <p className="text-sm font-bold text-black mb-2">You:</p>
-                            <p className="text-black leading-relaxed">{currentResponse.question}</p>
-                          </div>
-                        )}
-                        <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                          <p className="text-sm font-bold text-black mb-2">AI:</p>
-                          <div className="prose max-w-none text-black leading-relaxed">
-                            {isAnimatingResponse ? renderText(animatedResponseContent) : renderText(currentResponse.content)}
-                          </div>
-                        </div>
+              {/* Document Info */}
+              {documentData && !hasResponse && (
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center space-x-3">
+                    <FileCheck className="h-5 w-5 text-green-600" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{documentData.originalName}</p>
+                      <p className="text-xs text-gray-500">
+                        {formatFileSize(documentData.size)} • {formatDate(documentData.uploadedAt)}
+                      </p>
+                    </div>
+                    {processingStatus && (
+                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        processingStatus.status === 'processed'
+                          ? 'bg-green-100 text-green-800'
+                          : processingStatus.status === 'processing'
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {processingStatus.status.charAt(0).toUpperCase() + processingStatus.status.slice(1)}
                       </div>
                     )}
                   </div>
-                  
-                  {currentResponse && currentResponse.confidence && (
-                    <div className="mt-8 pt-6 border-t border-gray-200">
-                      <div className="flex items-center justify-between text-sm text-black mb-3">
-                        <span className="font-bold">Confidence Level</span>
-                        <span className="font-bold text-lg">{Math.round(currentResponse.confidence * 100)}%</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-3 border border-gray-300">
-                        <div
-                          className="bg-blue-600 h-3 rounded-full transition-all duration-500"
-                          style={{ width: `${currentResponse.confidence * 100}%` }}
-                        ></div>
+                </div>
+              )}
+            </form>
+          </div>
+        </div>
+      ) : (
+        // Split View: Left and Right Panels
+        <>
+          {/* Left Panel - Chat Messages */}
+          <div className={`${showSplitView ? 'w-1/2' : 'w-full'} border-r border-gray-200 flex flex-col bg-white`}>
+            {/* Header */}
+            <div className="p-4 border-b border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">Conversation</h2>
+                <button
+                  onClick={startNewChat}
+                  className="px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                >
+                  New Chat
+                </button>
+              </div>
+              {/* Search Input */}
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search chat history..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            
+            {/* Chat Messages - Scrollable */}
+            <div className="flex-1 overflow-y-auto px-4 py-6">
+              <div className="space-y-6">
+                {chatHistory
+                  .filter(chat =>
+                    chat.question.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map((chat, index) => (
+                    <div key={chat.id || index} className="space-y-4">
+                      {/* User Message */}
+                      <div className="flex justify-end">
+                        <div className="max-w-[85%] bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
+                          <p className="text-sm font-medium leading-relaxed">{highlightText(chat.display_text_left_panel || chat.question, searchQuery)}</p>
+                        </div>
                       </div>
                     </div>
-                  )}
+                  ))}
+              </div>
+            </div>
+
+            {/* Input Area - Fixed at bottom */}
+            <div className="border-t border-gray-200 p-6 bg-white flex-shrink-0">
+              <form onSubmit={handleChatSubmit} className="max-w-4xl mx-auto">
+                <div className="flex items-center space-x-3 bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 focus-within:border-blue-300 focus-within:bg-white focus-within:shadow-sm">
+                  {/* Upload Button */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+                    title="Upload Document"
+                  >
+                    {isUploading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Paperclip className="h-5 w-5" />
+                    )}
+                  </button>
+                  
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.doc,.docx,.txt"
+                    onChange={handleFileUpload}
+                    disabled={isUploading}
+                  />
+
+                  {/* Analysis Dropdown */}
+                  <div className="relative flex-shrink-0" ref={dropdownRef}>
+                    <button
+                      type="button"
+                      onClick={() => setShowDropdown(!showDropdown)}
+                      disabled={!fileId || processingStatus?.status !== 'processed' || isLoading || isGeneratingInsights}
+                      className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <BookOpen className="h-4 w-4" />
+                      <span>{activeDropdown}</span>
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+
+                    {showDropdown && (
+                      <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
+                        {dropdownOptions.map((option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => handleDropdownSelect(option)}
+                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg"
+                          >
+                            {option}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Generate Analysis Button */}
+                  <button
+                    type="button"
+                    onClick={handleAnalysisClick}
+                    disabled={isGeneratingInsights || !fileId || processingStatus?.status !== 'processed' || isLoading}
+                    className="p-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-lg transition-colors flex-shrink-0"
+                    title="Generate Analysis"
+                  >
+                    {isGeneratingInsights ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Send className="h-5 w-5" />
+                    )}
+                  </button>
+
+                  {/* Chat Input */}
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder={fileId ? "Message Legal Assistant..." : "Upload a document to get started"}
+                    className="flex-1 bg-transparent border-none outline-none text-gray-900 placeholder-gray-500 text-[15px] font-medium py-2 min-w-0"
+                    disabled={isLoading || !fileId || processingStatus?.status !== 'processed' || isGeneratingInsights}
+                  />
+
+                  {/* Send Button */}
+                  <button
+                    type="submit"
+                    disabled={isLoading || !chatInput.trim() || !fileId || processingStatus?.status !== 'processed' || isGeneratingInsights}
+                    className="p-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-colors flex-shrink-0"
+                    title="Send Message"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Send className="h-5 w-5" />
+                    )}
+                  </button>
+                </div>
+                
+                {/* Processing Status */}
+                {documentData && processingStatus?.status === 'processing' && (
+                  <div className="mt-3 text-center">
+                    <div className="inline-flex items-center px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Processing document...
+                      {processingStatus.processing_progress && (
+                        <span className="ml-1">({Math.round(processingStatus.processing_progress)}%)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Document Info */}
+                {documentData && !hasResponse && (
+                  <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center space-x-3">
+                      <FileCheck className="h-5 w-5 text-green-600" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{documentData.originalName}</p>
+                        <p className="text-xs text-gray-500">
+                          {formatFileSize(documentData.size)} • {formatDate(documentData.uploadedAt)}
+                        </p>
+                      </div>
+                      {processingStatus && (
+                        <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          processingStatus.status === 'processed'
+                            ? 'bg-green-100 text-green-800'
+                            : processingStatus.status === 'processing'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {processingStatus.status.charAt(0).toUpperCase() + processingStatus.status.slice(1)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </form>
+            </div>
+          </div>
+
+          {/* Right Panel - Main Content */}
+          <div className={`${showSplitView ? 'w-1/2' : 'w-full'} flex flex-col`}>
+            {/* Response Area */}
+            <div className="flex-1 overflow-y-auto" ref={responseRef}>
+              {showSplitView && (currentResponse || animatedResponseContent) ? (
+                <div className="px-6 py-6">
+                  <div className="max-w-none">
+                    <div className="prose prose-gray max-w-none">
+                      {renderText(animatedResponseContent || currentResponse)}
+                      {isAnimatingResponse && (
+                        <span className="inline-block w-2 h-5 bg-gray-400 animate-pulse ml-1"></span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <div className="text-center text-gray-500 py-16">
-                  {!documentData ? (
-                    <div className="bg-white rounded-lg p-12 border border-gray-200 shadow-sm">
-                      <FileText className="h-20 w-20 mx-auto mb-6 text-gray-400" />
-                      <h3 className="text-2xl font-bold mb-4 text-black">Welcome to Legal Document Analysis</h3>
-                      <p className="text-gray-600 mb-8 max-w-md mx-auto leading-relaxed">
-                        Upload a legal document to get started with AI-powered analysis, summaries, and insights.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="bg-white rounded-lg p-12 border border-gray-200 shadow-sm">
-                      <MessageSquare className="h-20 w-20 mx-auto mb-6 text-gray-400" />
-                      <h3 className="text-2xl font-bold mb-4 text-black">Ready for Analysis</h3>
-                      <p className="text-gray-600 mb-8 max-w-md mx-auto leading-relaxed">
-                        Select an analysis type from the dropdown or ask a specific question about your document.
-                      </p>
-                    </div>
-                  )}
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center max-w-md px-6">
+                    <MessageSquare className="h-16 w-16 mx-auto mb-6 text-gray-300" />
+                    <h3 className="text-2xl font-semibold mb-4 text-gray-900">AI Response</h3>
+                    <p className="text-gray-600 text-lg leading-relaxed">
+                      Your AI responses will appear here.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
           </div>
-        </div>
-
-        {/* Search Bar */}
-        <div className="border-t border-gray-200 p-4 bg-white">
-          <form onSubmit={handleChatSubmit} className="max-w-4xl mx-auto">
-            <div className="flex items-center space-x-2 bg-gray-50 rounded-lg border border-gray-300 p-2 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
-              {/* Upload Button */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
-                title="Upload Document"
-              >
-                {isUploading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Paperclip className="h-5 w-5" />
-                )}
-              </button>
-              
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                accept=".pdf,.doc,.docx,.txt"
-                onChange={handleFileUpload}
-                disabled={isUploading}
-              />
-
-              {/* Dropdown for Analysis Type */}
-              <div className="relative" ref={dropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setShowDropdown(!showDropdown)}
-                  disabled={!fileId || processingStatus?.status !== 'processed'}
-                  className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span>{activeDropdown}</span>
-                  <ChevronDown className="h-4 w-4" />
-                </button>
-
-                {showDropdown && (
-                  <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-300 rounded-lg shadow-lg z-10">
-                    {dropdownOptions.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => handleDropdownSelect(option)}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Analysis Button */}
-              <button
-                type="button"
-                onClick={handleAnalysisClick}
-                disabled={isGeneratingInsights || !fileId || processingStatus?.status !== 'processed'}
-                className="p-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg transition-colors"
-                title="Generate Analysis"
-              >
-                {isGeneratingInsights ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <BookOpen className="h-5 w-5" />
-                )}
-              </button>
-
-              {/* Chat Input */}
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder={fileId ? "Ask questions about the document..." : "Upload a document or select a chat to get started"}
-                className="flex-1 bg-transparent border-none outline-none text-gray-700 placeholder-gray-400 text-sm"
-                disabled={isLoading || !fileId || processingStatus?.status !== 'processed'}
-              />
-
-              {/* Send Chat Button */}
-              <button
-                type="submit"
-                disabled={isLoading || !chatInput.trim() || !fileId || processingStatus?.status !== 'processed'}
-                className="p-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg transition-colors"
-                title="Send Message"
-              >
-                {isLoading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Send className="h-5 w-5" />
-                )}
-              </button>
-            </div>
-            
-            {/* Status Info */}
-            {documentData && processingStatus?.status === 'processing' && (
-              <div className="mt-2 text-center">
-                <p className="text-sm text-blue-600">
-                  Processing document...
-                  {processingStatus.processing_progress && (
-                    <span className="ml-1">({Math.round(processingStatus.processing_progress)}%)</span>
-                  )}
-                </p>
-              </div>
-            )}
-          </form>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 };
 
-// Animated text rendering utility
-const animateText = (text, setter, isAnimatingSetter, delay = 10) => {
-  let i = 0;
-  setter(''); // Clear previous content
-  isAnimatingSetter(true);
-  const interval = setInterval(() => {
-    if (i < text.length) {
-      setter(prev => prev + text.charAt(i));
-      i++;
-    } else {
-      clearInterval(interval);
-      isAnimatingSetter(false);
-    }
-  }, delay);
-};
-
 export default AnalysisPage;
-
-
-

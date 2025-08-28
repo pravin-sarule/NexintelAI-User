@@ -174,12 +174,14 @@
 
 
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const ChatHistoryPage = () => {
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchChats = async () => {
@@ -191,7 +193,7 @@ const ChatHistoryPage = () => {
           return;
         }
 
-        const response = await fetch('http://localhost:3000/api/chat', {
+        const response = await fetch('https://nexintelai-user.onrender.com/api/chat', {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -247,10 +249,7 @@ const ChatHistoryPage = () => {
   };
 
   const handleChatClick = (fileId, sessionId) => {
-    // Replace with your navigation logic
-    console.log(`Navigate to analysis/${fileId}/${sessionId}`);
-    // For actual implementation, use: window.location.href = `/analysis/${fileId}/${sessionId}`;
-    // Or integrate with your preferred routing solution
+    navigate(`/analysis/${fileId}/${sessionId}`);
   };
 
   if (loading) {
