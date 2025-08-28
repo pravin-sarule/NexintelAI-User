@@ -1,2431 +1,2420 @@
-// const Razorpay = require("razorpay");
-// const crypto = require("crypto");
-// const db = require("../config/db");
 
-// const razorpay = new Razorpay({
-//   key_id: process.env.RAZORPAY_KEY_ID,
-//   key_secret: process.env.RAZORPAY_SECRET,
-// });
-
-// const startSubscription = async (req, res) => {
+// // Webhook handler for Razorpay events
+// const handleWebhook = async (req, res) => {
 //   try {
-//     console.log("🔥 Request received to start subscription");
+//     const signature = req.headers['x-razorpay-signature'];
+//     const payload = JSON.stringify(req.body);
+//     console.log(`DEBUG: handleWebhook - Received webhook. Event: ${req.body.event}`);
     
-//     const userId = req.user?.id;
-//     const { plan_id } = req.body;
-    
-//     if (!userId) {
-//       console.log("⛔ No userId");
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!plan_id) {
-//       console.log("⛔ No plan_id");
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing plan_id" 
-//       });
-//     }
-    
-//     console.log("✅ User ID:", userId, "| Plan ID:", plan_id);
-    
-//     // Fetch plan
-//     const planRes = await db.query("SELECT * FROM subscription_plans WHERE id = $1", [plan_id]);
-//     if (planRes.rows.length === 0) {
-//       console.log("❌ Plan not found");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Plan not found" 
-//       });
-//     }
-    
-//     const plan = planRes.rows[0];
-//     console.log("📦 Plan from DB:", plan);
-    
-//     if (!plan.razorpay_plan_id) {
-//       console.log("❌ Missing razorpay_plan_id");
-//       return res.status(500).json({ 
-//         success: false,
-//         message: "Plan missing Razorpay ID" 
-//       });
-//     }
-    
-//     // Get user details for customer creation
-//     const userRes = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
-//     if (userRes.rows.length === 0) {
-//       console.log("❌ User not found");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "User not found" 
-//       });
-//     }
-    
-//     const user = userRes.rows[0];
-    
-//     // Create or get Razorpay customer
-//     let customerId = user.razorpay_customer_id;
-    
-//     if (!customerId) {
-//       console.log("⚙️ Creating customer on Razorpay...");
-//       const customer = await razorpay.customers.create({
-//         name: user.name || user.username || 'Customer',
-//         email: user.email,
-//         contact: user.phone || user.contact || '',
-//         fail_existing: 0
-//       });
-      
-//       customerId = customer.id;
-      
-//       // Update user with customer ID
-//       await db.query(
-//         "UPDATE users SET razorpay_customer_id = $1 WHERE id = $2",
-//         [customerId, userId]
-//       );
-      
-//       console.log("✅ Customer created:", customerId);
-//     }
-    
-//     // Create Razorpay subscription
-//     console.log("⚙️ Creating subscription on Razorpay...");
-//     const subscriptionOptions = {
-//       plan_id: plan.razorpay_plan_id,
-//       customer_notify: 1,
-//       quantity: 1,
-//     };
-    
-//     // Add total_count only if it's not unlimited
-//     if (plan.interval !== 'lifetime') {
-//       subscriptionOptions.total_count = 12; // or based on your business logic
-//     }
-    
-//     const subscription = await razorpay.subscriptions.create(subscriptionOptions);
-    
-//     console.log("✅ Razorpay subscription created:", subscription);
-    
-//     // Save to DB
-//     await db.query(
-//       `INSERT INTO user_subscriptions 
-//         (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date)
-//         VALUES ($1, $2, $3, $4, $5, CURRENT_DATE)
-//         ON CONFLICT (user_id) DO UPDATE SET 
-//           plan_id = EXCLUDED.plan_id,
-//           razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
-//           status = EXCLUDED.status,
-//           current_token_balance = EXCLUDED.current_token_balance,
-//           updated_at = CURRENT_TIMESTAMP`,
-//       [
-//         userId,
-//         plan.id,
-//         subscription.id,
-//         "created", // Razorpay initial status
-//         plan.token_limit || 0,
-//       ]
-//     );
-    
-//     return res.status(200).json({
-//       success: true,
-//       subscription_id: subscription.id,
-//       key: process.env.RAZORPAY_KEY_ID, // Frontend needs this
-//       customer_id: customerId,
-//       plan_name: plan.name,
-//       amount: plan.price * 100, // Razorpay expects amount in paise
-//       currency: 'INR'
-//     });
-//   } catch (err) {
-//     console.error("❌ Subscription creation failed:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Subscription initiation failed",
-//       error: err.message,
-//     });
-//   }
-// };
-
-// const verifySubscription = async (req, res) => {
-//   try {
-//     console.log("🔥 Request received to verify subscription payment");
-    
-//     const userId = req.user?.id;
-//     const { 
-//       razorpay_payment_id, 
-//       razorpay_subscription_id, 
-//       razorpay_signature 
-//     } = req.body;
-    
-//     if (!userId) {
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing payment verification data" 
-//       });
-//     }
-    
-//     // Verify signature
+//     // Verify webhook signature
 //     const expectedSignature = crypto
-//       .createHmac('sha256', process.env.RAZORPAY_SECRET)
-//       .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+//       .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
+//       .update(payload)
 //       .digest('hex');
     
-//     if (expectedSignature !== razorpay_signature) {
-//       console.log("❌ Invalid signature");
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Invalid payment signature" 
-//       });
+//     if (signature !== expectedSignature) {
+//       console.log("❌ Invalid webhook signature");
+//       console.log(`DEBUG: handleWebhook - Invalid signature. Expected: ${expectedSignature}, Received: ${signature}`);
+//       return res.status(400).json({ message: "Invalid signature" });
 //     }
     
-//     // Fetch subscription details from Razorpay
-//     const subscription = await razorpay.subscriptions.fetch(razorpay_subscription_id);
-//     console.log("📦 Subscription from Razorpay:", subscription);
+//     const { event, payload: eventPayload } = req.body;
+//     console.log(`🔔 Webhook received: ${event}`);
+//     console.log(`DEBUG: handleWebhook - Processing event: ${event}`);
     
-//     // Update subscription status in DB
-//     const updateResult = await db.query(
-//       `UPDATE user_subscriptions 
-//        SET status = $1, 
-//            razorpay_payment_id = $2,
-//            activated_at = CURRENT_TIMESTAMP,
-//            updated_at = CURRENT_TIMESTAMP
-//        WHERE user_id = $3 AND razorpay_subscription_id = $4
-//        RETURNING *`,
-//       ['active', razorpay_payment_id, userId, razorpay_subscription_id]
-//     );
-    
-//     if (updateResult.rows.length === 0) {
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Subscription not found" 
-//       });
+//     switch (event) {
+//       case 'subscription.activated':
+//         console.log(`DEBUG: handleWebhook - Calling handleSubscriptionActivated for subscription ID: ${eventPayload.subscription.entity.id}`);
+//         await handleSubscriptionActivated(eventPayload.subscription.entity);
+//         break;
+//       case 'subscription.charged':
+//         console.log(`DEBUG: handleWebhook - Calling handleSubscriptionCharged for subscription ID: ${eventPayload.subscription.entity.id}`);
+//         await handleSubscriptionCharged(eventPayload.payment.entity, eventPayload.subscription.entity);
+//         break;
+//       case 'subscription.cancelled':
+//         console.log(`DEBUG: handleWebhook - Calling handleSubscriptionCancelled for subscription ID: ${eventPayload.subscription.entity.id}`);
+//         await handleSubscriptionCancelled(eventPayload.subscription.entity);
+//         break;
+//       case 'subscription.completed':
+//         console.log(`DEBUG: handleWebhook - Calling handleSubscriptionCompleted for subscription ID: ${eventPayload.subscription.entity.id}`);
+//         await handleSubscriptionCompleted(eventPayload.subscription.entity);
+//         break;
+//       default:
+//         console.log(`Unhandled webhook event: ${event}`);
+//         console.log(`DEBUG: handleWebhook - Unhandled event type: ${event}`);
 //     }
     
-//     console.log("✅ Subscription verified and activated");
-    
-//     return res.status(200).json({
-//       success: true,
-//       message: "Subscription verified successfully",
-//       subscription: updateResult.rows[0]
-//     });
-    
+//     return res.status(200).json({ status: 'ok' });
 //   } catch (err) {
-//     console.error("❌ Subscription verification failed:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Subscription verification failed",
-//       error: err.message,
-//     });
+//     console.error("❌ Webhook handling failed:", err);
+//     console.error(`DEBUG: handleWebhook - Error: ${err.message}, Stack: ${err.stack}`);
+//     return res.status(500).json({ message: "Webhook handling failed" });
 //   }
 // };
 
-// Webhook handler for Razorpay events
-const handleWebhook = async (req, res) => {
-  try {
-    const signature = req.headers['x-razorpay-signature'];
-    const payload = JSON.stringify(req.body);
-    console.log(`DEBUG: handleWebhook - Received webhook. Event: ${req.body.event}`);
-    
-    // Verify webhook signature
-    const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
-      .update(payload)
-      .digest('hex');
-    
-    if (signature !== expectedSignature) {
-      console.log("❌ Invalid webhook signature");
-      console.log(`DEBUG: handleWebhook - Invalid signature. Expected: ${expectedSignature}, Received: ${signature}`);
-      return res.status(400).json({ message: "Invalid signature" });
-    }
-    
-    const { event, payload: eventPayload } = req.body;
-    console.log(`🔔 Webhook received: ${event}`);
-    console.log(`DEBUG: handleWebhook - Processing event: ${event}`);
-    
-    switch (event) {
-      case 'subscription.activated':
-        console.log(`DEBUG: handleWebhook - Calling handleSubscriptionActivated for subscription ID: ${eventPayload.subscription.entity.id}`);
-        await handleSubscriptionActivated(eventPayload.subscription.entity);
-        break;
-      case 'subscription.charged':
-        console.log(`DEBUG: handleWebhook - Calling handleSubscriptionCharged for subscription ID: ${eventPayload.subscription.entity.id}`);
-        await handleSubscriptionCharged(eventPayload.payment.entity, eventPayload.subscription.entity);
-        break;
-      case 'subscription.cancelled':
-        console.log(`DEBUG: handleWebhook - Calling handleSubscriptionCancelled for subscription ID: ${eventPayload.subscription.entity.id}`);
-        await handleSubscriptionCancelled(eventPayload.subscription.entity);
-        break;
-      case 'subscription.completed':
-        console.log(`DEBUG: handleWebhook - Calling handleSubscriptionCompleted for subscription ID: ${eventPayload.subscription.entity.id}`);
-        await handleSubscriptionCompleted(eventPayload.subscription.entity);
-        break;
-      default:
-        console.log(`Unhandled webhook event: ${event}`);
-        console.log(`DEBUG: handleWebhook - Unhandled event type: ${event}`);
-    }
-    
-    return res.status(200).json({ status: 'ok' });
-  } catch (err) {
-    console.error("❌ Webhook handling failed:", err);
-    console.error(`DEBUG: handleWebhook - Error: ${err.message}, Stack: ${err.stack}`);
-    return res.status(500).json({ message: "Webhook handling failed" });
-  }
-};
-
-const handleSubscriptionActivated = async (subscription) => {
-  try {
-    console.log(`DEBUG: handleSubscriptionActivated - Attempting to activate subscription ID: ${subscription.id}`);
-    const result = await db.query(
-      `UPDATE user_subscriptions
-       SET status = 'active', activated_at = CURRENT_TIMESTAMP
-       WHERE razorpay_subscription_id = $1 RETURNING user_id, plan_id`,
-      [subscription.id]
-    );
-    if (result.rows.length > 0) {
-      const { user_id, plan_id } = result.rows[0];
-      console.log(`✅ Subscription ${subscription.id} activated. User ID: ${user_id}, New Status: active`);
-
-      // Fetch token_limit from subscription_plans
-      const planResult = await db.query(
-        `SELECT token_limit FROM subscription_plans WHERE id = $1`,
-        [plan_id]
-      );
-      if (planResult.rows.length > 0) {
-        const tokenLimit = planResult.rows[0].token_limit;
-        await TokenUsageService.resetUserUsage(user_id, tokenLimit, 'Subscription Activated');
-        console.log(`DEBUG: handleSubscriptionActivated - User ${user_id} tokens reset to ${tokenLimit}.`);
-      } else {
-        console.warn(`⚠️ handleSubscriptionActivated - Plan ID ${plan_id} not found for user ${user_id}. Cannot reset tokens.`);
-      }
-    } else {
-      console.warn(`⚠️ handleSubscriptionActivated - No user_subscription found for Razorpay ID: ${subscription.id}`);
-    }
-  } catch (err) {
-    console.error(`❌ Error handling subscription activation for ID ${subscription.id}:`, err);
-    console.error(`DEBUG: handleSubscriptionActivated - Error: ${err.message}, Stack: ${err.stack}`);
-  }
-};
-
-const handleSubscriptionCharged = async (payment, subscription) => {
-  try {
-    console.log(`DEBUG: handleSubscriptionCharged - Attempting to handle charge for subscription ID: ${subscription.id}`);
-    // Update payment info
-    const updateResult = await db.query(
-      `UPDATE user_subscriptions
-       SET razorpay_payment_id = $1,
-            last_charged_at = CURRENT_TIMESTAMP,
-            last_reset_date = CURRENT_DATE -- Update last reset date
-       WHERE razorpay_subscription_id = $2 RETURNING user_id, plan_id`,
-      [payment.id, subscription.id]
-    );
-
-    if (updateResult.rows.length > 0) {
-      const { user_id, plan_id } = updateResult.rows[0];
-      console.log(`✅ Subscription ${subscription.id} charged. User ID: ${user_id}`);
-
-      // Fetch token_limit from subscription_plans
-      const planResult = await db.query(
-        `SELECT token_limit FROM subscription_plans WHERE id = $1`,
-        [plan_id]
-      );
-      if (planResult.rows.length > 0) {
-        const tokenLimit = planResult.rows[0].token_limit;
-        await TokenUsageService.resetUserUsage(user_id, tokenLimit, 'Subscription Charged/Renewed');
-        console.log(`DEBUG: handleSubscriptionCharged - User ${user_id} tokens reset to ${tokenLimit}.`);
-      } else {
-        console.warn(`⚠️ handleSubscriptionCharged - Plan ID ${plan_id} not found for user ${user_id}. Cannot reset tokens.`);
-      }
-    } else {
-      console.warn(`⚠️ handleSubscriptionCharged - No user_subscription found for Razorpay ID: ${subscription.id} during charge handling.`);
-    }
-    console.log(`✅ Subscription ${subscription.id} charged`);
-  } catch (err) {
-    console.error(`❌ Error handling subscription charge for ID ${subscription.id}:`, err);
-    console.error(`DEBUG: handleSubscriptionCharged - Error: ${err.message}, Stack: ${err.stack}`);
-  }
-};
-
-const handleSubscriptionCancelled = async (subscription) => {
-  try {
-    await db.query(
-      `UPDATE user_subscriptions
-       SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
-       WHERE razorpay_subscription_id = $1`,
-      [subscription.id]
-    );
-    console.log(`✅ Subscription ${subscription.id} cancelled`);
-  } catch (err) {
-    console.error("Error handling subscription cancellation:", err);
-  }
-};
-
-const handleSubscriptionCompleted = async (subscription) => {
-  try {
-    await db.query(
-      `UPDATE user_subscriptions
-       SET status = 'completed', completed_at = CURRENT_TIMESTAMP
-       WHERE razorpay_subscription_id = $1`,
-      [subscription.id]
-    );
-    console.log(`✅ Subscription ${subscription.id} completed`);
-  } catch (err) {
-    console.error("Error handling subscription completion:", err);
-  }
-};
-
-// module.exports = {
-//   startSubscription,
-//   verifySubscription,
-//   handleWebhook,
-// };
-
-// const Razorpay = require("razorpay");
-// const crypto = require("crypto");
-// const db = require("../config/db");
-
-// const razorpay = new Razorpay({
-//   key_id: process.env.RAZORPAY_KEY_ID,
-//   key_secret: process.env.RAZORPAY_SECRET,
-// });
-
-// const startSubscription = async (req, res) => {
+// const handleSubscriptionActivated = async (subscription) => {
 //   try {
-//     console.log("🔥 Starting subscription process");
-//     console.log("Request body:", req.body);
-//     console.log("User from auth:", req.user?.id);
-    
-//     const userId = req.user?.id;
-//     const { plan_id } = req.body;
-    
-//     if (!userId) {
-//       console.log("❌ No user ID");
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!plan_id) {
-//       console.log("❌ No plan_id");
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing plan_id" 
-//       });
-//     }
-    
-//     console.log("✅ User ID:", userId, "Plan ID:", plan_id);
-    
-//     // Fetch plan from database
-//     console.log("📦 Fetching plan from database...");
-//     const planQuery = await db.query(
-//       "SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", 
-//       [plan_id]
+//     console.log(`DEBUG: handleSubscriptionActivated - Attempting to activate subscription ID: ${subscription.id}`);
+//     const result = await db.query(
+//       `UPDATE user_subscriptions
+//        SET status = 'active', activated_at = CURRENT_TIMESTAMP
+//        WHERE razorpay_subscription_id = $1 RETURNING user_id, plan_id`,
+//       [subscription.id]
 //     );
-    
-//     console.log("Plan query result:", planQuery.rows);
-    
-//     if (planQuery.rows.length === 0) {
-//       console.log("❌ Plan not found or inactive");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Plan not found or inactive" 
-//       });
-//     }
-    
-//     if (planQuery.rows.length === 0 || !planQuery.rows[0]) {
-//       console.log("❌ Plan not found or inactive (after initial query)");
-//       return res.status(404).json({
-//         success: false,
-//         message: "Plan not found or inactive"
-//       });
-//     }
+//     if (result.rows.length > 0) {
+//       const { user_id, plan_id } = result.rows[0];
+//       console.log(`✅ Subscription ${subscription.id} activated. User ID: ${user_id}, New Status: active`);
 
-//     const plan = planQuery.rows[0];
-//     console.log("📋 Plan details:", {
-//       id: plan.id,
-//       name: plan.name,
-//       razorpay_plan_id: plan.razorpay_plan_id,
-//       price: plan.price,
-//       interval: plan.interval
-//     });
-    
-//     // Check if plan has razorpay_plan_id
-//     if (!plan.razorpay_plan_id) {
-//       console.log("❌ Plan missing razorpay_plan_id");
-//       return res.status(500).json({
-//         success: false,
-//         message: `Plan '${plan.name}' is not properly configured with Razorpay`
-//       });
-//     }
-    
-//     // Get user details
-//     console.log("👤 Fetching user details...");
-//     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
-    
-//     if (userQuery.rows.length === 0) {
-//       console.log("❌ User not found");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "User not found" 
-//       });
-//     }
-    
-//     const user = userQuery.rows[0];
-//     console.log("👤 User details:", {
-//       id: user.id,
-//       name: user.name || user.username,
-//       email: user.email,
-//       existing_customer_id: user.razorpay_customer_id || 'none'
-//     });
-    
-//     // Create or get Razorpay customer
-//     let customerId = user.razorpay_customer_id;
-    
-//     if (!customerId) {
-//       console.log("⚙️ Creating Razorpay customer...");
-      
-//       try {
-//         const customerData = {
-//           name: user.name || user.username || `User ${user.id}`,
-//           email: user.email,
-//           fail_existing: 0
-//         };
-        
-//         // Add phone if available
-//         if (user.phone || user.contact) {
-//           customerData.contact = user.phone || user.contact;
-//         }
-        
-//         console.log("Creating customer with:", customerData);
-        
-//         const customer = await razorpay.customers.create(customerData);
-//         customerId = customer.id;
-        
-//         console.log("✅ Customer created:", customerId);
-        
-//         // Update user with customer ID
-//         await db.query(
-//           "UPDATE users SET razorpay_customer_id = $1 WHERE id = $2",
-//           [customerId, userId]
-//         );
-        
-//       } catch (customerError) {
-//         console.error("❌ Customer creation failed:", customerError);
-//         return res.status(500).json({
-//           success: false,
-//           message: "Failed to create customer profile",
-//           error: customerError.error?.description || customerError.message
-//         });
-//       }
-//     }
-    
-//     // Create subscription
-//     console.log("⚙️ Creating Razorpay subscription...");
-//     console.log("Using plan_id:", plan.razorpay_plan_id);
-    
-//     try {
-//       const subscriptionData = {
-//         plan_id: plan.razorpay_plan_id,
-//         customer_notify: 1,
-//         quantity: 1,
-//       };
-
-//       // Set total_count based on plan interval, if not 'lifetime'
-//       if (plan.interval && plan.interval !== 'lifetime') {
-//         subscriptionData.total_count = 12; // Default to 12 cycles for non-lifetime plans
-//       } else if (plan.interval === 'lifetime') {
-//         subscriptionData.total_count = 1; // For lifetime, typically one charge
-//       }
-      
-//       // Log subscription data before sending to Razorpay
-//       console.log("Sending subscription data to Razorpay:", JSON.stringify(subscriptionData, null, 2));
-      
-//       const subscription = await razorpay.subscriptions.create(subscriptionData);
-//       console.log("Raw Razorpay subscription response:", JSON.stringify(subscription, null, 2));
-      
-//       console.log("✅ Subscription created:", {
-//         id: subscription.id,
-//         status: subscription.status,
-//         plan_id: subscription.plan_id,
-//         razorpay_plan_id_from_db: plan.razorpay_plan_id // Log the DB plan ID
-//       });
-      
-//       // Save to database
-//       console.log("💾 Saving to database...");
-      
-//       await db.query(
-//         `INSERT INTO user_subscriptions 
-//           (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
-//           VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-//           ON CONFLICT (user_id) DO UPDATE SET 
-//             plan_id = EXCLUDED.plan_id,
-//             razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
-//             status = EXCLUDED.status,
-//             current_token_balance = EXCLUDED.current_token_balance,
-//             updated_at = CURRENT_TIMESTAMP`,
-//         [
-//           userId,
-//           plan.id,
-//           subscription.id,
-//           subscription.status, // Use actual Razorpay status
-//           plan.token_limit || 0,
-//         ]
+//       // Fetch token_limit from subscription_plans
+//       const planResult = await db.query(
+//         `SELECT token_limit FROM subscription_plans WHERE id = $1`,
+//         [plan_id]
 //       );
-      
-//       console.log("✅ Subscription saved to database");
-      
-//       // Return success response
-//       const response = {
-//         success: true,
-//         subscription_id: subscription.id,
-//         key: process.env.RAZORPAY_KEY_ID,
-//         customer_id: customerId,
-//         plan: {
-//           id: plan.id,
-//           name: plan.name || 'Unknown Plan',
-//           description: plan.description || '',
-//           price: plan.price,
-//           currency: plan.currency || 'INR',
-//           interval: plan.interval,
-//           type: plan.type || 'standard',
-//           features: plan.features || [],
-//           document_limit: plan.document_limit,
-//           ai_analysis_limit: plan.ai_analysis_limit,
-//           token_limit: plan.token_limit,
-//           carry_over_limit: plan.carry_over_limit,
-//           limits: plan.limits || {},
-//           razorpay_plan_id: plan.razorpay_plan_id,
-//           created_at: plan.created_at,
-//           updated_at: plan.updated_at,
-//           is_active: plan.is_active
-//         }
-//       };
-      
-//       console.log("🎉 Returning success response to frontend:", JSON.stringify(response, null, 2));
-//       console.log("Frontend should receive subscription_id:", response.subscription_id);
-//       console.log("Final plan object in response:", JSON.stringify(response.plan, null, 2)); // Added log
-      
-//       return res.status(200).json(response);
-      
-//     } catch (subscriptionError) {
-//       console.error("❌ Subscription creation failed:", subscriptionError);
-      
-//       // Log detailed error information
-//       console.error("Full subscriptionError object (with all properties):", JSON.stringify(subscriptionError, Object.getOwnPropertyNames(subscriptionError), 2));
-//       console.error("SubscriptionError instance of Error:", subscriptionError instanceof Error);
-//       console.error("SubscriptionError.name:", subscriptionError.name);
-//       console.error("SubscriptionError.message:", subscriptionError.message);
-//       console.error("SubscriptionError.stack:", subscriptionError.stack);
-//       console.error("SubscriptionError.statusCode:", subscriptionError.statusCode);
-//       console.error("SubscriptionError.error (if exists):", subscriptionError.error);
-      
-//       let errorMessage = "Failed to create subscription";
-//       let rawErrorDetails = {};
-
-//       if (!subscriptionError) {
-//         errorMessage = "An unknown error occurred during subscription creation (error object was null/undefined).";
-//         rawErrorDetails = { message: errorMessage };
+//       if (planResult.rows.length > 0) {
+//         const tokenLimit = planResult.rows[0].token_limit;
+//         await TokenUsageService.resetUserUsage(user_id, tokenLimit, 'Subscription Activated');
+//         console.log(`DEBUG: handleSubscriptionActivated - User ${user_id} tokens reset to ${tokenLimit}.`);
 //       } else {
-//         // Safely handle Razorpay API errors (which often have an 'error' object)
-//         const razorpayErrorDetails = subscriptionError?.error;
-//         if (razorpayErrorDetails && typeof razorpayErrorDetails === 'object') {
-//           errorMessage = razorpayErrorDetails.description || razorpayErrorDetails.message || errorMessage;
-//           rawErrorDetails.razorpay_error = razorpayErrorDetails;
-//         }
-//         // Handle general Error objects
-//         else if (subscriptionError instanceof Error) {
-//           errorMessage = subscriptionError.message;
-//           rawErrorDetails.name = subscriptionError.name;
-//           rawErrorDetails.message = subscriptionError.message;
-//           rawErrorDetails.stack = subscriptionError.stack;
-//         }
-//         // Handle cases where error is a string or other primitive
-//         else if (typeof subscriptionError === 'string') {
-//           errorMessage = subscriptionError;
-//         } else {
-//           // Fallback for unexpected error types
-//           errorMessage = "An unexpected error occurred during subscription creation.";
-//           rawErrorDetails.unknown_error = subscriptionError;
-//         }
-        
-//         // Include status code if available
-//         if (subscriptionError?.statusCode) {
-//           rawErrorDetails.statusCode = subscriptionError.statusCode;
-//         }
-        
-//         // Ensure fullError is always an object, even if empty, using optional chaining
-//         rawErrorDetails.fullError = {
-//           name: subscriptionError?.name,
-//           message: subscriptionError?.message,
-//           stack: subscriptionError?.stack,
-//           ...(razorpayErrorDetails && typeof razorpayErrorDetails === 'object' && { razorpay_error_details: razorpayErrorDetails })
-//         };
+//         console.warn(`⚠️ handleSubscriptionActivated - Plan ID ${plan_id} not found for user ${user_id}. Cannot reset tokens.`);
 //       }
-      
-//       return res.status(500).json({
-//         success: false,
-//         message: "Failed to create subscription",
-//         error: errorMessage,
-//         raw_error: JSON.stringify(rawErrorDetails, getCircularReplacer())
-//       });
+//     } else {
+//       console.warn(`⚠️ handleSubscriptionActivated - No user_subscription found for Razorpay ID: ${subscription.id}`);
 //     }
-    
 //   } catch (err) {
-//     console.error("❌ Unexpected error in startSubscription:", err);
-//     console.error("Stack trace:", err.stack);
-//     console.error("Error type:", typeof err);
-//     console.error("Error constructor:", err.constructor?.name);
-
-//     let errorMessage = "Subscription initiation failed due to an unexpected error.";
-//     let errorDetails = {
-//       name: err?.name || "UnknownError",
-//       message: err?.message || "No message available",
-//       stack: err?.stack || "No stack trace available",
-//       originalError: JSON.stringify(err, getCircularReplacer()) // Capture full error object
-//     };
-    
-//     return res.status(500).json({
-//       success: false,
-//       message: errorMessage,
-//       error: {
-//         message: errorMessage,
-//         details: errorDetails
-//       },
-//       error_details: errorDetails, // For backward compatibility/detailed debugging
-//       error_type: err?.constructor?.name || "Unknown"
-//     });
+//     console.error(`❌ Error handling subscription activation for ID ${subscription.id}:`, err);
+//     console.error(`DEBUG: handleSubscriptionActivated - Error: ${err.message}, Stack: ${err.stack}`);
 //   }
 // };
 
-// // Helper function to handle circular references in JSON.stringify
-// const getCircularReplacer = () => {
-//   const seen = new WeakSet();
-//   return (key, value) => {
-//     if (typeof value === "object" && value !== null) {
-//       if (seen.has(value)) {
-//         return; // Circular reference found, discard key
-//       }
-//       seen.add(value);
-//     }
-//     return value;
-//   };
-// };
-
-// const verifySubscription = async (req, res) => {
+// const handleSubscriptionCharged = async (payment, subscription) => {
 //   try {
-//     console.log("🔥 Verifying subscription payment");
-    
-//     const userId = req.user?.id;
-//     const { 
-//       razorpay_payment_id, 
-//       razorpay_subscription_id, 
-//       razorpay_signature 
-//     } = req.body;
-    
-//     console.log("Verification data received:", {
-//       userId,
-//       razorpay_payment_id,
-//       razorpay_subscription_id,
-//       has_signature: !!razorpay_signature
-//     });
-    
-//     if (!userId) {
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing payment verification data" 
-//       });
-//     }
-    
-//     // Verify signature
-//     const expectedSignature = crypto
-//       .createHmac('sha256', process.env.RAZORPAY_SECRET)
-//       .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
-//       .digest('hex');
-    
-//     if (expectedSignature !== razorpay_signature) {
-//       console.log("❌ Invalid signature");
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Invalid payment signature" 
-//       });
-//     }
-    
-//     console.log("✅ Signature verified");
-    
-//     // Update subscription status in database
+//     console.log(`DEBUG: handleSubscriptionCharged - Attempting to handle charge for subscription ID: ${subscription.id}`);
+//     // Update payment info
 //     const updateResult = await db.query(
-//       `UPDATE user_subscriptions 
-//        SET status = 'active', 
-//            razorpay_payment_id = $1,
-//            activated_at = CURRENT_TIMESTAMP,
-//            updated_at = CURRENT_TIMESTAMP
-//        WHERE user_id = $2 AND razorpay_subscription_id = $3
-//        RETURNING *`,
-//       [razorpay_payment_id, userId, razorpay_subscription_id]
+//       `UPDATE user_subscriptions
+//        SET razorpay_payment_id = $1,
+//             last_charged_at = CURRENT_TIMESTAMP,
+//             last_reset_date = CURRENT_DATE -- Update last reset date
+//        WHERE razorpay_subscription_id = $2 RETURNING id, user_id, plan_id`,
+//       [payment.id, subscription.id]
 //     );
-    
-//     if (updateResult.rows.length === 0) {
-//       console.log("❌ Subscription not found in database");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Subscription not found" 
-//       });
-//     }
-    
-//     console.log("✅ Subscription verified and activated");
-    
-//     return res.status(200).json({
-//       success: true,
-//       message: "Subscription verified successfully",
-//       subscription: updateResult.rows[0]
-//     });
-    
-//   } catch (err) {
-//     console.error("❌ Verification error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Subscription verification failed",
-//       error: err.message,
-//     });
-//   }
-// };
 
-// // Test endpoint to check plans
-// const testPlans = async (req, res) => {
-//   try {
-//     console.log("🧪 Testing plan configuration...");
-    
-//     // Check database plans
-//     const dbPlans = await db.query(
-//       "SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id"
-//     );
-    
-//     console.log("Database plans:", dbPlans.rows);
-    
-//     // Check Razorpay plans
-//     const rzpPlans = await razorpay.plans.all({ count: 10 });
-    
-//     console.log("Razorpay plans:", rzpPlans.items?.map(p => ({
-//       id: p.id,
-//       name: p.item?.name,
-//       amount: p.item?.amount,
-//       currency: p.item?.currency,
-//       period: p.period
-//     })));
-    
-//     return res.json({
-//       success: true,
-//       database_plans: dbPlans.rows,
-//       razorpay_plans: rzpPlans.items?.length || 0,
-//       razorpay_plan_details: rzpPlans.items?.map(p => ({
-//         id: p.id,
-//         name: p.item?.name,
-//         amount: p.item?.amount,
-//         currency: p.item?.currency,
-//         period: p.period
-//       }))
-//     });
-    
-//   } catch (error) {
-//     console.error("❌ Test failed:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Plan test failed",
-//       error: error.message
-//     });
-//   }
-// };
+//     if (updateResult.rows.length > 0) {
+//       const { id: user_subscription_id, user_id, plan_id } = updateResult.rows[0];
+//       console.log(`✅ Subscription ${subscription.id} charged. User ID: ${user_id}, User Subscription ID: ${user_subscription_id}`);
 
-// module.exports = {
-//   startSubscription,
-//   verifySubscription,
-//   testPlans,
-//   testRazorpayConnection,
-// };
-
-// async function testRazorpayConnection(req, res) {
-//   try {
-//     console.log("🧪 Testing Razorpay API connection...");
-//     const plans = await razorpay.plans.all({ count: 1 }); // Fetch one plan to test connection
-//     console.log("✅ Successfully connected to Razorpay API. Plans fetched:", plans.items.length);
-//     return res.status(200).json({
-//       success: true,
-//       message: "Successfully connected to Razorpay API",
-//       plans_count: plans.items.length,
-//     });
-//   } catch (error) {
-//     console.error("❌ Failed to connect to Razorpay API:", error);
-//     console.error("Full Razorpay connection error object:", JSON.stringify(error, null, 2));
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to connect to Razorpay API",
-//       error: error.error ? (error.error.description || error.error.message || JSON.stringify(error.error)) : error.message || "Unknown Razorpay connection error",
-//       raw_error: JSON.stringify(error) // Add raw error for more debugging
-//     });
-//   }
-// }
-
-// const Razorpay = require("razorpay");
-// const crypto = require("crypto");
-// const db = require("../config/db");
-
-// const razorpay = new Razorpay({
-//   key_id: process.env.RAZORPAY_KEY_ID,
-//   key_secret: process.env.RAZORPAY_SECRET,
-// });
-
-// const startSubscription = async (req, res) => {
-//   try {
-//     console.log("🔥 Starting subscription process");
-//     console.log("Request body:", req.body);
-//     console.log("User from auth:", req.user?.id);
-    
-//     const userId = req.user?.id;
-//     const { plan_id } = req.body;
-    
-//     if (!userId) {
-//       console.log("❌ No user ID");
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!plan_id) {
-//       console.log("❌ No plan_id");
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing plan_id" 
-//       });
-//     }
-    
-//     console.log("✅ User ID:", userId, "Plan ID:", plan_id);
-    
-//     // Fetch plan from database
-//     console.log("📦 Fetching plan from database...");
-//     const planQuery = await db.query(
-//       "SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", 
-//       [plan_id]
-//     );
-    
-//     console.log("Plan query result:", planQuery.rows);
-    
-//     if (planQuery.rows.length === 0) {
-//       console.log("❌ Plan not found or inactive");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Plan not found or inactive" 
-//       });
-//     }
-    
-//     const plan = planQuery.rows[0];
-//     console.log("📋 Plan details:", {
-//       id: plan.id,
-//       name: plan.name,
-//       razorpay_plan_id: plan.razorpay_plan_id,
-//       price: plan.price,
-//       interval: plan.interval
-//     });
-    
-//     // Check if plan has razorpay_plan_id
-//     if (!plan.razorpay_plan_id) {
-//       console.log("❌ Plan missing razorpay_plan_id");
-//       return res.status(500).json({ 
-//         success: false,
-//         message: `Plan '${plan.name}' is not properly configured with Razorpay` 
-//       });
-//     }
-    
-//     // Get user details
-//     console.log("👤 Fetching user details...");
-//     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
-    
-//     if (userQuery.rows.length === 0) {
-//       console.log("❌ User not found");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "User not found" 
-//       });
-//     }
-    
-//     const user = userQuery.rows[0];
-//     console.log("👤 User details:", {
-//       id: user.id,
-//       name: user.name || user.username,
-//       email: user.email,
-//       existing_customer_id: user.razorpay_customer_id || 'none'
-//     });
-    
-//     // Create or get Razorpay customer
-//     let customerId = user.razorpay_customer_id;
-    
-//     if (!customerId) {
-//       console.log("⚙️ Creating Razorpay customer...");
-      
-//       try {
-//         const customerData = {
-//           name: user.name || user.username || `User ${user.id}`,
-//           email: user.email,
-//           fail_existing: 0
-//         };
-        
-//         // Add phone if available and valid
-//         if (user.phone || user.contact) {
-//           const phoneNumber = (user.phone || user.contact).toString().trim();
-//           if (phoneNumber && phoneNumber.length >= 10) {
-//             customerData.contact = phoneNumber;
-//           }
-//         }
-        
-//         console.log("Creating customer with:", customerData);
-        
-//         const customer = await razorpay.customers.create(customerData);
-//         customerId = customer.id;
-        
-//         console.log("✅ Customer created:", customerId);
-        
-//         // Update user with customer ID
-//         await db.query(
-//           "UPDATE users SET razorpay_customer_id = $1 WHERE id = $2",
-//           [customerId, userId]
-//         );
-        
-//       } catch (customerError) {
-//         console.error("❌ Customer creation failed:", customerError);
-//         console.error("Customer error details:", {
-//           message: customerError.message,
-//           statusCode: customerError.statusCode,
-//           error: customerError.error
-//         });
-        
-//         return res.status(500).json({
-//           success: false,
-//           message: "Failed to create customer profile",
-//           error: customerError.error?.description || customerError.message || "Customer creation failed"
-//         });
+//       // Fetch token_limit from subscription_plans
+//       const planResult = await db.query(
+//         `SELECT token_limit FROM subscription_plans WHERE id = $1`,
+//         [plan_id]
+//       );
+//       if (planResult.rows.length > 0) {
+//         const tokenLimit = planResult.rows[0].token_limit;
+//         await TokenUsageService.resetUserUsage(user_id, tokenLimit, 'Subscription Charged/Renewed');
+//         console.log(`DEBUG: handleSubscriptionCharged - User ${user_id} tokens reset to ${tokenLimit}.`);
+//       } else {
+//         console.warn(`⚠️ handleSubscriptionCharged - Plan ID ${plan_id} not found for user ${user_id}. Cannot reset tokens.`);
 //       }
+//     } else {
+//       console.warn(`⚠️ handleSubscriptionCharged - No user_subscription found for Razorpay ID: ${subscription.id} during charge handling.`);
 //     }
-    
-//     // Validate Razorpay plan exists
-//     console.log("🔍 Validating Razorpay plan exists...");
-//     try {
-//       const razorpayPlan = await razorpay.plans.fetch(plan.razorpay_plan_id);
-//       console.log("✅ Razorpay plan found:", {
-//         id: razorpayPlan.id,
-//         name: razorpayPlan.item?.name,
-//         amount: razorpayPlan.item?.amount,
-//         currency: razorpayPlan.item?.currency
-//       });
-//     } catch (planFetchError) {
-//       console.error("❌ Razorpay plan not found:", planFetchError);
-//       return res.status(400).json({
-//         success: false,
-//         message: `Plan ${plan.razorpay_plan_id} not found in Razorpay. Please check plan configuration.`,
-//         error: planFetchError.error?.description || planFetchError.message || "Plan validation failed"
-//       });
-//     }
-    
-//     // Create subscription
-//     console.log("⚙️ Creating Razorpay subscription...");
-//     console.log("Using plan_id:", plan.razorpay_plan_id);
-    
-//     try {
-//       const subscriptionData = {
-//         plan_id: plan.razorpay_plan_id,
-//         customer_notify: 1,
-//         quantity: 1,
-//       };
 
-//       // Set total_count based on plan interval
-//       if (plan.interval && plan.interval !== 'lifetime') {
-//         subscriptionData.total_count = 12; // Default to 12 cycles for non-lifetime plans
-//       } else if (plan.interval === 'lifetime') {
-//         subscriptionData.total_count = 1; // For lifetime, typically one charge
-//       }
-      
-//       // Add customer_id if available
-//       if (customerId) {
-//         subscriptionData.customer_id = customerId;
-//       }
-      
-//       // Log subscription data before sending to Razorpay
-//       console.log("Sending subscription data to Razorpay:", JSON.stringify(subscriptionData, null, 2));
-      
-//       const subscription = await razorpay.subscriptions.create(subscriptionData);
-//       console.log("Raw Razorpay subscription response:", JSON.stringify(subscription, null, 2));
-      
-//       console.log("✅ Subscription created:", {
-//         id: subscription.id,
-//         status: subscription.status,
-//         plan_id: subscription.plan_id,
-//         customer_id: subscription.customer_id,
-//         razorpay_plan_id_from_db: plan.razorpay_plan_id
-//       });
-      
-//       // Save to database
-//       console.log("💾 Saving to database...");
-      
+//     // Insert payment details into the payments table
+//     if (updateResult.rows.length > 0) {
+//       const { user_id, id: user_subscription_id } = updateResult.rows[0];
 //       await db.query(
-//         `INSERT INTO user_subscriptions 
-//           (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
-//           VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-//           ON CONFLICT (user_id) DO UPDATE SET 
-//             plan_id = EXCLUDED.plan_id,
-//             razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
-//             status = EXCLUDED.status,
-//             current_token_balance = EXCLUDED.current_token_balance,
-//             updated_at = CURRENT_TIMESTAMP`,
+//         `INSERT INTO payments (
+//           user_id,
+//           subscription_id,
+//           razorpay_payment_id,
+//           razorpay_order_id,
+//           amount,
+//           currency,
+//           status,
+//           payment_method,
+//           created_at
+//         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)`,
 //         [
-//           userId,
-//           plan.id,
-//           subscription.id,
-//           subscription.status, // Use actual Razorpay status
-//           plan.token_limit || 0,
+//           user_id,
+//           user_subscription_id,
+//           payment.id, // razorpay_payment_id
+//           payment.order_id,
+//           payment.amount / 100, // Convert paise to actual amount
+//           payment.currency,
+//           payment.status,
+//           payment.method,
 //         ]
 //       );
-      
-//       console.log("✅ Subscription saved to database");
-      
-//       // Return success response
-//       const response = {
-//         success: true,
-//         subscription_id: subscription.id,
-//         key: process.env.RAZORPAY_KEY_ID,
-//         customer_id: customerId,
-//         plan_name: plan.name,
-//         amount: plan.price * 100, // Convert to paise
-//         currency: 'INR'
-//       };
-      
-//       console.log("🎉 Returning success response to frontend:", JSON.stringify(response, null, 2));
-//       console.log("Frontend should receive subscription_id:", response.subscription_id);
-      
-//       return res.status(200).json(response);
-      
-//     } catch (subscriptionError) {
-//       console.error("❌ Subscription creation failed:", subscriptionError);
-      
-//       // Enhanced error logging
-//       console.error("Subscription error type:", typeof subscriptionError);
-//       console.error("Subscription error constructor:", subscriptionError.constructor?.name);
-      
-//       // Safely extract error information
-//       let errorMessage = "Failed to create subscription";
-//       let errorDetails = {};
-      
-//       if (subscriptionError) {
-//         // Handle different error structures
-//         if (subscriptionError.error) {
-//           errorDetails.razorpay_error = subscriptionError.error;
-//           errorMessage = subscriptionError.error.description || 
-//                         subscriptionError.error.message || 
-//                         errorMessage;
-//         } else if (subscriptionError.message) {
-//           errorMessage = subscriptionError.message;
-//         }
-        
-//         if (subscriptionError.statusCode) {
-//           errorDetails.status_code = subscriptionError.statusCode;
-//         }
-        
-//         // Log all enumerable properties
-//         for (let key in subscriptionError) {
-//           if (subscriptionError.hasOwnProperty(key)) {
-//             errorDetails[key] = subscriptionError[key];
-//           }
-//         }
-//       }
-      
-//       console.error("Processed error details:", errorDetails);
-      
-//       return res.status(500).json({
-//         success: false,
-//         message: errorMessage,
-//         error_details: errorDetails,
-//         debug_info: {
-//           plan_id: plan.razorpay_plan_id,
-//           customer_id: customerId,
-//           subscription_data: subscriptionData
-//         }
-//       });
+//       console.log(`✅ Payment ${payment.id} recorded in payments table for User ID: ${user_id}`);
 //     }
     
+//     console.log(`✅ Subscription ${subscription.id} charged`);
 //   } catch (err) {
-//     console.error("❌ Unexpected error:", err);
-//     console.error("Stack trace:", err.stack);
-//     console.error("Error type:", typeof err);
-//     console.error("Error constructor:", err.constructor?.name);
-    
-//     return res.status(500).json({
-//       success: false,
-//       message: "Subscription initiation failed",
-//       error: err.message || "Unknown error occurred",
-//       error_type: err.constructor?.name || "Unknown"
-//     });
+//     console.error(`❌ Error handling subscription charge for ID ${subscription.id}:`, err);
+//     console.error(`DEBUG: handleSubscriptionCharged - Error: ${err.message}, Stack: ${err.stack}`);
 //   }
 // };
 
-// const verifySubscription = async (req, res) => {
+// const handleSubscriptionCancelled = async (subscription) => {
 //   try {
-//     console.log("🔥 Verifying subscription payment");
-    
-//     const userId = req.user?.id;
-//     const { 
-//       razorpay_payment_id, 
-//       razorpay_subscription_id, 
-//       razorpay_signature 
-//     } = req.body;
-    
-//     console.log("Verification data received:", {
-//       userId,
-//       razorpay_payment_id,
-//       razorpay_subscription_id,
-//       has_signature: !!razorpay_signature
-//     });
-    
-//     if (!userId) {
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing payment verification data" 
-//       });
-//     }
-    
-//     // Verify signature
-//     const expectedSignature = crypto
-//       .createHmac('sha256', process.env.RAZORPAY_SECRET)
-//       .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
-//       .digest('hex');
-    
-//     if (expectedSignature !== razorpay_signature) {
-//       console.log("❌ Invalid signature");
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Invalid payment signature" 
-//       });
-//     }
-    
-//     console.log("✅ Signature verified");
-    
-//     // Update subscription status in database
-//     const updateResult = await db.query(
-//       `UPDATE user_subscriptions 
-//        SET status = 'active', 
-//            razorpay_payment_id = $1,
-//            activated_at = CURRENT_TIMESTAMP,
-//            updated_at = CURRENT_TIMESTAMP
-//        WHERE user_id = $2 AND razorpay_subscription_id = $3
-//        RETURNING *`,
-//       [razorpay_payment_id, userId, razorpay_subscription_id]
+//     await db.query(
+//       `UPDATE user_subscriptions
+//        SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
+//        WHERE razorpay_subscription_id = $1`,
+//       [subscription.id]
 //     );
-    
-//     if (updateResult.rows.length === 0) {
-//       console.log("❌ Subscription not found in database");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Subscription not found" 
-//       });
-//     }
-    
-//     console.log("✅ Subscription verified and activated");
-    
-//     return res.status(200).json({
-//       success: true,
-//       message: "Subscription verified successfully",
-//       subscription: updateResult.rows[0]
-//     });
-    
+//     console.log(`✅ Subscription ${subscription.id} cancelled`);
 //   } catch (err) {
-//     console.error("❌ Verification error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Subscription verification failed",
-//       error: err.message || "Verification failed",
-//     });
+//     console.error("Error handling subscription cancellation:", err);
 //   }
 // };
 
-// // Test endpoint to check plans
-// const testPlans = async (req, res) => {
+// const handleSubscriptionCompleted = async (subscription) => {
 //   try {
-//     console.log("🧪 Testing plan configuration...");
-    
-//     // Check database plans
-//     const dbPlans = await db.query(
-//       "SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id"
+//     await db.query(
+//       `UPDATE user_subscriptions
+//        SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+//        WHERE razorpay_subscription_id = $1`,
+//       [subscription.id]
 //     );
-    
-//     console.log("Database plans:", dbPlans.rows);
-    
-//     // Check Razorpay plans with error handling
-//     let razorpayPlans = [];
-//     let razorpayError = null;
-    
-//     try {
-//       const rzpPlans = await razorpay.plans.all({ count: 10 });
-//       razorpayPlans = rzpPlans.items?.map(p => ({
-//         id: p.id,
-//         name: p.item?.name,
-//         amount: p.item?.amount,
-//         currency: p.item?.currency,
-//         period: p.period
-//       })) || [];
-//     } catch (error) {
-//       console.error("Failed to fetch Razorpay plans:", error);
-//       razorpayError = error.message || "Failed to connect to Razorpay";
-//     }
-    
-//     console.log("Razorpay plans:", razorpayPlans);
-    
-//     return res.json({
-//       success: true,
-//       database_plans: dbPlans.rows,
-//       razorpay_plans: razorpayPlans.length,
-//       razorpay_plan_details: razorpayPlans,
-//       razorpay_error: razorpayError
-//     });
-    
-//   } catch (error) {
-//     console.error("❌ Test failed:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Plan test failed",
-//       error: error.message || "Test failed"
-//     });
+//     console.log(`✅ Subscription ${subscription.id} completed`);
+//   } catch (err) {
+//     console.error("Error handling subscription completion:", err);
 //   }
 // };
 
-// async function testRazorpayConnection(req, res) {
-//   try {
-//     console.log("🧪 Testing Razorpay API connection...");
+// // module.exports = {
+// //   startSubscription,
+// //   verifySubscription,
+// //   handleWebhook,
+// // };
+
+// // const Razorpay = require("razorpay");
+// // const crypto = require("crypto");
+// // const db = require("../config/db");
+
+// // const razorpay = new Razorpay({
+// //   key_id: process.env.RAZORPAY_KEY_ID,
+// //   key_secret: process.env.RAZORPAY_SECRET,
+// // });
+
+// // const startSubscription = async (req, res) => {
+// //   try {
+// //     console.log("🔥 Starting subscription process");
+// //     console.log("Request body:", req.body);
+// //     console.log("User from auth:", req.user?.id);
     
-//     // Test API keys first
-//     if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET) {
-//       throw new Error("Razorpay API keys not configured properly");
-//     }
+// //     const userId = req.user?.id;
+// //     const { plan_id } = req.body;
     
-//     console.log("API Keys configured:", {
-//       key_id: process.env.RAZORPAY_KEY_ID?.substring(0, 10) + "...",
-//       secret: process.env.RAZORPAY_SECRET ? "✓ Present" : "✗ Missing"
-//     });
+// //     if (!userId) {
+// //       console.log("❌ No user ID");
+// //       return res.status(401).json({ 
+// //         success: false,
+// //         message: "Unauthorized user" 
+// //       });
+// //     }
     
-//     const plans = await razorpay.plans.all({ count: 1 }); // Fetch one plan to test connection
-//     console.log("✅ Successfully connected to Razorpay API. Plans fetched:", plans.items?.length || 0);
+// //     if (!plan_id) {
+// //       console.log("❌ No plan_id");
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Missing plan_id" 
+// //       });
+// //     }
     
-//     return res.status(200).json({
-//       success: true,
-//       message: "Successfully connected to Razorpay API",
-//       plans_count: plans.items?.length || 0,
-//       api_status: "Connected"
-//     });
+// //     console.log("✅ User ID:", userId, "Plan ID:", plan_id);
     
-//   } catch (error) {
-//     console.error("❌ Failed to connect to Razorpay API:", error);
-//     console.error("Connection error type:", typeof error);
-//     console.error("Connection error constructor:", error.constructor?.name);
+// //     // Fetch plan from database
+// //     console.log("📦 Fetching plan from database...");
+// //     const planQuery = await db.query(
+// //       "SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", 
+// //       [plan_id]
+// //     );
     
-//     let errorMessage = "Failed to connect to Razorpay API";
-//     let errorDetails = {};
+// //     console.log("Plan query result:", planQuery.rows);
     
-//     if (error) {
-//       if (error.error) {
-//         errorDetails.razorpay_error = error.error;
-//         errorMessage = error.error.description || error.error.message || errorMessage;
-//       } else if (error.message) {
-//         errorMessage = error.message;
-//       }
+// //     if (planQuery.rows.length === 0) {
+// //       console.log("❌ Plan not found or inactive");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "Plan not found or inactive" 
+// //       });
+// //     }
+    
+// //     if (planQuery.rows.length === 0 || !planQuery.rows[0]) {
+// //       console.log("❌ Plan not found or inactive (after initial query)");
+// //       return res.status(404).json({
+// //         success: false,
+// //         message: "Plan not found or inactive"
+// //       });
+// //     }
+
+// //     const plan = planQuery.rows[0];
+// //     console.log("📋 Plan details:", {
+// //       id: plan.id,
+// //       name: plan.name,
+// //       razorpay_plan_id: plan.razorpay_plan_id,
+// //       price: plan.price,
+// //       interval: plan.interval
+// //     });
+    
+// //     // Check if plan has razorpay_plan_id
+// //     if (!plan.razorpay_plan_id) {
+// //       console.log("❌ Plan missing razorpay_plan_id");
+// //       return res.status(500).json({
+// //         success: false,
+// //         message: `Plan '${plan.name}' is not properly configured with Razorpay`
+// //       });
+// //     }
+    
+// //     // Get user details
+// //     console.log("👤 Fetching user details...");
+// //     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
+    
+// //     if (userQuery.rows.length === 0) {
+// //       console.log("❌ User not found");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "User not found" 
+// //       });
+// //     }
+    
+// //     const user = userQuery.rows[0];
+// //     console.log("👤 User details:", {
+// //       id: user.id,
+// //       name: user.name || user.username,
+// //       email: user.email,
+// //       existing_customer_id: user.razorpay_customer_id || 'none'
+// //     });
+    
+// //     // Create or get Razorpay customer
+// //     let customerId = user.razorpay_customer_id;
+    
+// //     if (!customerId) {
+// //       console.log("⚙️ Creating Razorpay customer...");
       
-//       if (error.statusCode) {
-//         errorDetails.status_code = error.statusCode;
-//       }
-//     }
+// //       try {
+// //         const customerData = {
+// //           name: user.name || user.username || `User ${user.id}`,
+// //           email: user.email,
+// //           fail_existing: 0
+// //         };
+        
+// //         // Add phone if available
+// //         if (user.phone || user.contact) {
+// //           customerData.contact = user.phone || user.contact;
+// //         }
+        
+// //         console.log("Creating customer with:", customerData);
+        
+// //         const customer = await razorpay.customers.create(customerData);
+// //         customerId = customer.id;
+        
+// //         console.log("✅ Customer created:", customerId);
+        
+// //         // Update user with customer ID
+// //         await db.query(
+// //           "UPDATE users SET razorpay_customer_id = $1 WHERE id = $2",
+// //           [customerId, userId]
+// //         );
+        
+// //       } catch (customerError) {
+// //         console.error("❌ Customer creation failed:", customerError);
+// //         return res.status(500).json({
+// //           success: false,
+// //           message: "Failed to create customer profile",
+// //           error: customerError.error?.description || customerError.message
+// //         });
+// //       }
+// //     }
     
-//     return res.status(500).json({
-//       success: false,
-//       message: errorMessage,
-//       error_details: errorDetails,
-//       api_status: "Disconnected"
-//     });
-//   }
-// }
+// //     // Create subscription
+// //     console.log("⚙️ Creating Razorpay subscription...");
+// //     console.log("Using plan_id:", plan.razorpay_plan_id);
+    
+// //     try {
+// //       const subscriptionData = {
+// //         plan_id: plan.razorpay_plan_id,
+// //         customer_notify: 1,
+// //         quantity: 1,
+// //       };
 
-// module.exports = {
-//   startSubscription,
-//   verifySubscription,
-//   testPlans,
-//   testRazorpayConnection,
-// };
+// //       // Set total_count based on plan interval, if not 'lifetime'
+// //       if (plan.interval && plan.interval !== 'lifetime') {
+// //         subscriptionData.total_count = 12; // Default to 12 cycles for non-lifetime plans
+// //       } else if (plan.interval === 'lifetime') {
+// //         subscriptionData.total_count = 1; // For lifetime, typically one charge
+// //       }
+      
+// //       // Log subscription data before sending to Razorpay
+// //       console.log("Sending subscription data to Razorpay:", JSON.stringify(subscriptionData, null, 2));
+      
+// //       const subscription = await razorpay.subscriptions.create(subscriptionData);
+// //       console.log("Raw Razorpay subscription response:", JSON.stringify(subscription, null, 2));
+      
+// //       console.log("✅ Subscription created:", {
+// //         id: subscription.id,
+// //         status: subscription.status,
+// //         plan_id: subscription.plan_id,
+// //         razorpay_plan_id_from_db: plan.razorpay_plan_id // Log the DB plan ID
+// //       });
+      
+// //       // Save to database
+// //       console.log("💾 Saving to database...");
+      
+// //       await db.query(
+// //         `INSERT INTO user_subscriptions 
+// //           (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
+// //           VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+// //           ON CONFLICT (user_id) DO UPDATE SET 
+// //             plan_id = EXCLUDED.plan_id,
+// //             razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
+// //             status = EXCLUDED.status,
+// //             current_token_balance = EXCLUDED.current_token_balance,
+// //             updated_at = CURRENT_TIMESTAMP`,
+// //         [
+// //           userId,
+// //           plan.id,
+// //           subscription.id,
+// //           subscription.status, // Use actual Razorpay status
+// //           plan.token_limit || 0,
+// //         ]
+// //       );
+      
+// //       console.log("✅ Subscription saved to database");
+      
+// //       // Return success response
+// //       const response = {
+// //         success: true,
+// //         subscription_id: subscription.id,
+// //         key: process.env.RAZORPAY_KEY_ID,
+// //         customer_id: customerId,
+// //         plan: {
+// //           id: plan.id,
+// //           name: plan.name || 'Unknown Plan',
+// //           description: plan.description || '',
+// //           price: plan.price,
+// //           currency: plan.currency || 'INR',
+// //           interval: plan.interval,
+// //           type: plan.type || 'standard',
+// //           features: plan.features || [],
+// //           document_limit: plan.document_limit,
+// //           ai_analysis_limit: plan.ai_analysis_limit,
+// //           token_limit: plan.token_limit,
+// //           carry_over_limit: plan.carry_over_limit,
+// //           limits: plan.limits || {},
+// //           razorpay_plan_id: plan.razorpay_plan_id,
+// //           created_at: plan.created_at,
+// //           updated_at: plan.updated_at,
+// //           is_active: plan.is_active
+// //         }
+// //       };
+      
+// //       console.log("🎉 Returning success response to frontend:", JSON.stringify(response, null, 2));
+// //       console.log("Frontend should receive subscription_id:", response.subscription_id);
+// //       console.log("Final plan object in response:", JSON.stringify(response.plan, null, 2)); // Added log
+      
+// //       return res.status(200).json(response);
+      
+// //     } catch (subscriptionError) {
+// //       console.error("❌ Subscription creation failed:", subscriptionError);
+      
+// //       // Log detailed error information
+// //       console.error("Full subscriptionError object (with all properties):", JSON.stringify(subscriptionError, Object.getOwnPropertyNames(subscriptionError), 2));
+// //       console.error("SubscriptionError instance of Error:", subscriptionError instanceof Error);
+// //       console.error("SubscriptionError.name:", subscriptionError.name);
+// //       console.error("SubscriptionError.message:", subscriptionError.message);
+// //       console.error("SubscriptionError.stack:", subscriptionError.stack);
+// //       console.error("SubscriptionError.statusCode:", subscriptionError.statusCode);
+// //       console.error("SubscriptionError.error (if exists):", subscriptionError.error);
+      
+// //       let errorMessage = "Failed to create subscription";
+// //       let rawErrorDetails = {};
+
+// //       if (!subscriptionError) {
+// //         errorMessage = "An unknown error occurred during subscription creation (error object was null/undefined).";
+// //         rawErrorDetails = { message: errorMessage };
+// //       } else {
+// //         // Safely handle Razorpay API errors (which often have an 'error' object)
+// //         const razorpayErrorDetails = subscriptionError?.error;
+// //         if (razorpayErrorDetails && typeof razorpayErrorDetails === 'object') {
+// //           errorMessage = razorpayErrorDetails.description || razorpayErrorDetails.message || errorMessage;
+// //           rawErrorDetails.razorpay_error = razorpayErrorDetails;
+// //         }
+// //         // Handle general Error objects
+// //         else if (subscriptionError instanceof Error) {
+// //           errorMessage = subscriptionError.message;
+// //           rawErrorDetails.name = subscriptionError.name;
+// //           rawErrorDetails.message = subscriptionError.message;
+// //           rawErrorDetails.stack = subscriptionError.stack;
+// //         }
+// //         // Handle cases where error is a string or other primitive
+// //         else if (typeof subscriptionError === 'string') {
+// //           errorMessage = subscriptionError;
+// //         } else {
+// //           // Fallback for unexpected error types
+// //           errorMessage = "An unexpected error occurred during subscription creation.";
+// //           rawErrorDetails.unknown_error = subscriptionError;
+// //         }
+        
+// //         // Include status code if available
+// //         if (subscriptionError?.statusCode) {
+// //           rawErrorDetails.statusCode = subscriptionError.statusCode;
+// //         }
+        
+// //         // Ensure fullError is always an object, even if empty, using optional chaining
+// //         rawErrorDetails.fullError = {
+// //           name: subscriptionError?.name,
+// //           message: subscriptionError?.message,
+// //           stack: subscriptionError?.stack,
+// //           ...(razorpayErrorDetails && typeof razorpayErrorDetails === 'object' && { razorpay_error_details: razorpayErrorDetails })
+// //         };
+// //       }
+      
+// //       return res.status(500).json({
+// //         success: false,
+// //         message: "Failed to create subscription",
+// //         error: errorMessage,
+// //         raw_error: JSON.stringify(rawErrorDetails, getCircularReplacer())
+// //       });
+// //     }
+    
+// //   } catch (err) {
+// //     console.error("❌ Unexpected error in startSubscription:", err);
+// //     console.error("Stack trace:", err.stack);
+// //     console.error("Error type:", typeof err);
+// //     console.error("Error constructor:", err.constructor?.name);
+
+// //     let errorMessage = "Subscription initiation failed due to an unexpected error.";
+// //     let errorDetails = {
+// //       name: err?.name || "UnknownError",
+// //       message: err?.message || "No message available",
+// //       stack: err?.stack || "No stack trace available",
+// //       originalError: JSON.stringify(err, getCircularReplacer()) // Capture full error object
+// //     };
+    
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: errorMessage,
+// //       error: {
+// //         message: errorMessage,
+// //         details: errorDetails
+// //       },
+// //       error_details: errorDetails, // For backward compatibility/detailed debugging
+// //       error_type: err?.constructor?.name || "Unknown"
+// //     });
+// //   }
+// // };
+
+// // // Helper function to handle circular references in JSON.stringify
+// // const getCircularReplacer = () => {
+// //   const seen = new WeakSet();
+// //   return (key, value) => {
+// //     if (typeof value === "object" && value !== null) {
+// //       if (seen.has(value)) {
+// //         return; // Circular reference found, discard key
+// //       }
+// //       seen.add(value);
+// //     }
+// //     return value;
+// //   };
+// // };
+
+// // const verifySubscription = async (req, res) => {
+// //   try {
+// //     console.log("🔥 Verifying subscription payment");
+    
+// //     const userId = req.user?.id;
+// //     const { 
+// //       razorpay_payment_id, 
+// //       razorpay_subscription_id, 
+// //       razorpay_signature 
+// //     } = req.body;
+    
+// //     console.log("Verification data received:", {
+// //       userId,
+// //       razorpay_payment_id,
+// //       razorpay_subscription_id,
+// //       has_signature: !!razorpay_signature
+// //     });
+    
+// //     if (!userId) {
+// //       return res.status(401).json({ 
+// //         success: false,
+// //         message: "Unauthorized user" 
+// //       });
+// //     }
+    
+// //     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Missing payment verification data" 
+// //       });
+// //     }
+    
+// //     // Verify signature
+// //     const expectedSignature = crypto
+// //       .createHmac('sha256', process.env.RAZORPAY_SECRET)
+// //       .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+// //       .digest('hex');
+    
+// //     if (expectedSignature !== razorpay_signature) {
+// //       console.log("❌ Invalid signature");
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Invalid payment signature" 
+// //       });
+// //     }
+    
+// //     console.log("✅ Signature verified");
+    
+// //     // Update subscription status in database
+// //     const updateResult = await db.query(
+// //       `UPDATE user_subscriptions 
+// //        SET status = 'active', 
+// //            razorpay_payment_id = $1,
+// //            activated_at = CURRENT_TIMESTAMP,
+// //            updated_at = CURRENT_TIMESTAMP
+// //        WHERE user_id = $2 AND razorpay_subscription_id = $3
+// //        RETURNING *`,
+// //       [razorpay_payment_id, userId, razorpay_subscription_id]
+// //     );
+    
+// //     if (updateResult.rows.length === 0) {
+// //       console.log("❌ Subscription not found in database");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "Subscription not found" 
+// //       });
+// //     }
+    
+// //     console.log("✅ Subscription verified and activated");
+    
+// //     return res.status(200).json({
+// //       success: true,
+// //       message: "Subscription verified successfully",
+// //       subscription: updateResult.rows[0]
+// //     });
+    
+// //   } catch (err) {
+// //     console.error("❌ Verification error:", err);
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Subscription verification failed",
+// //       error: err.message,
+// //     });
+// //   }
+// // };
+
+// // // Test endpoint to check plans
+// // const testPlans = async (req, res) => {
+// //   try {
+// //     console.log("🧪 Testing plan configuration...");
+    
+// //     // Check database plans
+// //     const dbPlans = await db.query(
+// //       "SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id"
+// //     );
+    
+// //     console.log("Database plans:", dbPlans.rows);
+    
+// //     // Check Razorpay plans
+// //     const rzpPlans = await razorpay.plans.all({ count: 10 });
+    
+// //     console.log("Razorpay plans:", rzpPlans.items?.map(p => ({
+// //       id: p.id,
+// //       name: p.item?.name,
+// //       amount: p.item?.amount,
+// //       currency: p.item?.currency,
+// //       period: p.period
+// //     })));
+    
+// //     return res.json({
+// //       success: true,
+// //       database_plans: dbPlans.rows,
+// //       razorpay_plans: rzpPlans.items?.length || 0,
+// //       razorpay_plan_details: rzpPlans.items?.map(p => ({
+// //         id: p.id,
+// //         name: p.item?.name,
+// //         amount: p.item?.amount,
+// //         currency: p.item?.currency,
+// //         period: p.period
+// //       }))
+// //     });
+    
+// //   } catch (error) {
+// //     console.error("❌ Test failed:", error);
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Plan test failed",
+// //       error: error.message
+// //     });
+// //   }
+// // };
+
+// // module.exports = {
+// //   startSubscription,
+// //   verifySubscription,
+// //   testPlans,
+// //   testRazorpayConnection,
+// // };
+
+// // async function testRazorpayConnection(req, res) {
+// //   try {
+// //     console.log("🧪 Testing Razorpay API connection...");
+// //     const plans = await razorpay.plans.all({ count: 1 }); // Fetch one plan to test connection
+// //     console.log("✅ Successfully connected to Razorpay API. Plans fetched:", plans.items.length);
+// //     return res.status(200).json({
+// //       success: true,
+// //       message: "Successfully connected to Razorpay API",
+// //       plans_count: plans.items.length,
+// //     });
+// //   } catch (error) {
+// //     console.error("❌ Failed to connect to Razorpay API:", error);
+// //     console.error("Full Razorpay connection error object:", JSON.stringify(error, null, 2));
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Failed to connect to Razorpay API",
+// //       error: error.error ? (error.error.description || error.error.message || JSON.stringify(error.error)) : error.message || "Unknown Razorpay connection error",
+// //       raw_error: JSON.stringify(error) // Add raw error for more debugging
+// //     });
+// //   }
+// // }
+
+// // const Razorpay = require("razorpay");
+// // const crypto = require("crypto");
+// // const db = require("../config/db");
+
+// // const razorpay = new Razorpay({
+// //   key_id: process.env.RAZORPAY_KEY_ID,
+// //   key_secret: process.env.RAZORPAY_SECRET,
+// // });
+
+// // const startSubscription = async (req, res) => {
+// //   try {
+// //     console.log("🔥 Starting subscription process");
+// //     console.log("Request body:", req.body);
+// //     console.log("User from auth:", req.user?.id);
+    
+// //     const userId = req.user?.id;
+// //     const { plan_id } = req.body;
+    
+// //     if (!userId) {
+// //       console.log("❌ No user ID");
+// //       return res.status(401).json({ 
+// //         success: false,
+// //         message: "Unauthorized user" 
+// //       });
+// //     }
+    
+// //     if (!plan_id) {
+// //       console.log("❌ No plan_id");
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Missing plan_id" 
+// //       });
+// //     }
+    
+// //     console.log("✅ User ID:", userId, "Plan ID:", plan_id);
+    
+// //     // Fetch plan from database
+// //     console.log("📦 Fetching plan from database...");
+// //     const planQuery = await db.query(
+// //       "SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", 
+// //       [plan_id]
+// //     );
+    
+// //     console.log("Plan query result:", planQuery.rows);
+    
+// //     if (planQuery.rows.length === 0) {
+// //       console.log("❌ Plan not found or inactive");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "Plan not found or inactive" 
+// //       });
+// //     }
+    
+// //     const plan = planQuery.rows[0];
+// //     console.log("📋 Plan details:", {
+// //       id: plan.id,
+// //       name: plan.name,
+// //       razorpay_plan_id: plan.razorpay_plan_id,
+// //       price: plan.price,
+// //       interval: plan.interval
+// //     });
+    
+// //     // Check if plan has razorpay_plan_id
+// //     if (!plan.razorpay_plan_id) {
+// //       console.log("❌ Plan missing razorpay_plan_id");
+// //       return res.status(500).json({ 
+// //         success: false,
+// //         message: `Plan '${plan.name}' is not properly configured with Razorpay` 
+// //       });
+// //     }
+    
+// //     // Get user details
+// //     console.log("👤 Fetching user details...");
+// //     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
+    
+// //     if (userQuery.rows.length === 0) {
+// //       console.log("❌ User not found");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "User not found" 
+// //       });
+// //     }
+    
+// //     const user = userQuery.rows[0];
+// //     console.log("👤 User details:", {
+// //       id: user.id,
+// //       name: user.name || user.username,
+// //       email: user.email,
+// //       existing_customer_id: user.razorpay_customer_id || 'none'
+// //     });
+    
+// //     // Create or get Razorpay customer
+// //     let customerId = user.razorpay_customer_id;
+    
+// //     if (!customerId) {
+// //       console.log("⚙️ Creating Razorpay customer...");
+      
+// //       try {
+// //         const customerData = {
+// //           name: user.name || user.username || `User ${user.id}`,
+// //           email: user.email,
+// //           fail_existing: 0
+// //         };
+        
+// //         // Add phone if available and valid
+// //         if (user.phone || user.contact) {
+// //           const phoneNumber = (user.phone || user.contact).toString().trim();
+// //           if (phoneNumber && phoneNumber.length >= 10) {
+// //             customerData.contact = phoneNumber;
+// //           }
+// //         }
+        
+// //         console.log("Creating customer with:", customerData);
+        
+// //         const customer = await razorpay.customers.create(customerData);
+// //         customerId = customer.id;
+        
+// //         console.log("✅ Customer created:", customerId);
+        
+// //         // Update user with customer ID
+// //         await db.query(
+// //           "UPDATE users SET razorpay_customer_id = $1 WHERE id = $2",
+// //           [customerId, userId]
+// //         );
+        
+// //       } catch (customerError) {
+// //         console.error("❌ Customer creation failed:", customerError);
+// //         console.error("Customer error details:", {
+// //           message: customerError.message,
+// //           statusCode: customerError.statusCode,
+// //           error: customerError.error
+// //         });
+        
+// //         return res.status(500).json({
+// //           success: false,
+// //           message: "Failed to create customer profile",
+// //           error: customerError.error?.description || customerError.message || "Customer creation failed"
+// //         });
+// //       }
+// //     }
+    
+// //     // Validate Razorpay plan exists
+// //     console.log("🔍 Validating Razorpay plan exists...");
+// //     try {
+// //       const razorpayPlan = await razorpay.plans.fetch(plan.razorpay_plan_id);
+// //       console.log("✅ Razorpay plan found:", {
+// //         id: razorpayPlan.id,
+// //         name: razorpayPlan.item?.name,
+// //         amount: razorpayPlan.item?.amount,
+// //         currency: razorpayPlan.item?.currency
+// //       });
+// //     } catch (planFetchError) {
+// //       console.error("❌ Razorpay plan not found:", planFetchError);
+// //       return res.status(400).json({
+// //         success: false,
+// //         message: `Plan ${plan.razorpay_plan_id} not found in Razorpay. Please check plan configuration.`,
+// //         error: planFetchError.error?.description || planFetchError.message || "Plan validation failed"
+// //       });
+// //     }
+    
+// //     // Create subscription
+// //     console.log("⚙️ Creating Razorpay subscription...");
+// //     console.log("Using plan_id:", plan.razorpay_plan_id);
+    
+// //     try {
+// //       const subscriptionData = {
+// //         plan_id: plan.razorpay_plan_id,
+// //         customer_notify: 1,
+// //         quantity: 1,
+// //       };
+
+// //       // Set total_count based on plan interval
+// //       if (plan.interval && plan.interval !== 'lifetime') {
+// //         subscriptionData.total_count = 12; // Default to 12 cycles for non-lifetime plans
+// //       } else if (plan.interval === 'lifetime') {
+// //         subscriptionData.total_count = 1; // For lifetime, typically one charge
+// //       }
+      
+// //       // Add customer_id if available
+// //       if (customerId) {
+// //         subscriptionData.customer_id = customerId;
+// //       }
+      
+// //       // Log subscription data before sending to Razorpay
+// //       console.log("Sending subscription data to Razorpay:", JSON.stringify(subscriptionData, null, 2));
+      
+// //       const subscription = await razorpay.subscriptions.create(subscriptionData);
+// //       console.log("Raw Razorpay subscription response:", JSON.stringify(subscription, null, 2));
+      
+// //       console.log("✅ Subscription created:", {
+// //         id: subscription.id,
+// //         status: subscription.status,
+// //         plan_id: subscription.plan_id,
+// //         customer_id: subscription.customer_id,
+// //         razorpay_plan_id_from_db: plan.razorpay_plan_id
+// //       });
+      
+// //       // Save to database
+// //       console.log("💾 Saving to database...");
+      
+// //       await db.query(
+// //         `INSERT INTO user_subscriptions 
+// //           (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
+// //           VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+// //           ON CONFLICT (user_id) DO UPDATE SET 
+// //             plan_id = EXCLUDED.plan_id,
+// //             razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
+// //             status = EXCLUDED.status,
+// //             current_token_balance = EXCLUDED.current_token_balance,
+// //             updated_at = CURRENT_TIMESTAMP`,
+// //         [
+// //           userId,
+// //           plan.id,
+// //           subscription.id,
+// //           subscription.status, // Use actual Razorpay status
+// //           plan.token_limit || 0,
+// //         ]
+// //       );
+      
+// //       console.log("✅ Subscription saved to database");
+      
+// //       // Return success response
+// //       const response = {
+// //         success: true,
+// //         subscription_id: subscription.id,
+// //         key: process.env.RAZORPAY_KEY_ID,
+// //         customer_id: customerId,
+// //         plan_name: plan.name,
+// //         amount: plan.price * 100, // Convert to paise
+// //         currency: 'INR'
+// //       };
+      
+// //       console.log("🎉 Returning success response to frontend:", JSON.stringify(response, null, 2));
+// //       console.log("Frontend should receive subscription_id:", response.subscription_id);
+      
+// //       return res.status(200).json(response);
+      
+// //     } catch (subscriptionError) {
+// //       console.error("❌ Subscription creation failed:", subscriptionError);
+      
+// //       // Enhanced error logging
+// //       console.error("Subscription error type:", typeof subscriptionError);
+// //       console.error("Subscription error constructor:", subscriptionError.constructor?.name);
+      
+// //       // Safely extract error information
+// //       let errorMessage = "Failed to create subscription";
+// //       let errorDetails = {};
+      
+// //       if (subscriptionError) {
+// //         // Handle different error structures
+// //         if (subscriptionError.error) {
+// //           errorDetails.razorpay_error = subscriptionError.error;
+// //           errorMessage = subscriptionError.error.description || 
+// //                         subscriptionError.error.message || 
+// //                         errorMessage;
+// //         } else if (subscriptionError.message) {
+// //           errorMessage = subscriptionError.message;
+// //         }
+        
+// //         if (subscriptionError.statusCode) {
+// //           errorDetails.status_code = subscriptionError.statusCode;
+// //         }
+        
+// //         // Log all enumerable properties
+// //         for (let key in subscriptionError) {
+// //           if (subscriptionError.hasOwnProperty(key)) {
+// //             errorDetails[key] = subscriptionError[key];
+// //           }
+// //         }
+// //       }
+      
+// //       console.error("Processed error details:", errorDetails);
+      
+// //       return res.status(500).json({
+// //         success: false,
+// //         message: errorMessage,
+// //         error_details: errorDetails,
+// //         debug_info: {
+// //           plan_id: plan.razorpay_plan_id,
+// //           customer_id: customerId,
+// //           subscription_data: subscriptionData
+// //         }
+// //       });
+// //     }
+    
+// //   } catch (err) {
+// //     console.error("❌ Unexpected error:", err);
+// //     console.error("Stack trace:", err.stack);
+// //     console.error("Error type:", typeof err);
+// //     console.error("Error constructor:", err.constructor?.name);
+    
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Subscription initiation failed",
+// //       error: err.message || "Unknown error occurred",
+// //       error_type: err.constructor?.name || "Unknown"
+// //     });
+// //   }
+// // };
+
+// // const verifySubscription = async (req, res) => {
+// //   try {
+// //     console.log("🔥 Verifying subscription payment");
+    
+// //     const userId = req.user?.id;
+// //     const { 
+// //       razorpay_payment_id, 
+// //       razorpay_subscription_id, 
+// //       razorpay_signature 
+// //     } = req.body;
+    
+// //     console.log("Verification data received:", {
+// //       userId,
+// //       razorpay_payment_id,
+// //       razorpay_subscription_id,
+// //       has_signature: !!razorpay_signature
+// //     });
+    
+// //     if (!userId) {
+// //       return res.status(401).json({ 
+// //         success: false,
+// //         message: "Unauthorized user" 
+// //       });
+// //     }
+    
+// //     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Missing payment verification data" 
+// //       });
+// //     }
+    
+// //     // Verify signature
+// //     const expectedSignature = crypto
+// //       .createHmac('sha256', process.env.RAZORPAY_SECRET)
+// //       .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+// //       .digest('hex');
+    
+// //     if (expectedSignature !== razorpay_signature) {
+// //       console.log("❌ Invalid signature");
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Invalid payment signature" 
+// //       });
+// //     }
+    
+// //     console.log("✅ Signature verified");
+    
+// //     // Update subscription status in database
+// //     const updateResult = await db.query(
+// //       `UPDATE user_subscriptions 
+// //        SET status = 'active', 
+// //            razorpay_payment_id = $1,
+// //            activated_at = CURRENT_TIMESTAMP,
+// //            updated_at = CURRENT_TIMESTAMP
+// //        WHERE user_id = $2 AND razorpay_subscription_id = $3
+// //        RETURNING *`,
+// //       [razorpay_payment_id, userId, razorpay_subscription_id]
+// //     );
+    
+// //     if (updateResult.rows.length === 0) {
+// //       console.log("❌ Subscription not found in database");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "Subscription not found" 
+// //       });
+// //     }
+    
+// //     console.log("✅ Subscription verified and activated");
+    
+// //     return res.status(200).json({
+// //       success: true,
+// //       message: "Subscription verified successfully",
+// //       subscription: updateResult.rows[0]
+// //     });
+    
+// //   } catch (err) {
+// //     console.error("❌ Verification error:", err);
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Subscription verification failed",
+// //       error: err.message || "Verification failed",
+// //     });
+// //   }
+// // };
+
+// // // Test endpoint to check plans
+// // const testPlans = async (req, res) => {
+// //   try {
+// //     console.log("🧪 Testing plan configuration...");
+    
+// //     // Check database plans
+// //     const dbPlans = await db.query(
+// //       "SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id"
+// //     );
+    
+// //     console.log("Database plans:", dbPlans.rows);
+    
+// //     // Check Razorpay plans with error handling
+// //     let razorpayPlans = [];
+// //     let razorpayError = null;
+    
+// //     try {
+// //       const rzpPlans = await razorpay.plans.all({ count: 10 });
+// //       razorpayPlans = rzpPlans.items?.map(p => ({
+// //         id: p.id,
+// //         name: p.item?.name,
+// //         amount: p.item?.amount,
+// //         currency: p.item?.currency,
+// //         period: p.period
+// //       })) || [];
+// //     } catch (error) {
+// //       console.error("Failed to fetch Razorpay plans:", error);
+// //       razorpayError = error.message || "Failed to connect to Razorpay";
+// //     }
+    
+// //     console.log("Razorpay plans:", razorpayPlans);
+    
+// //     return res.json({
+// //       success: true,
+// //       database_plans: dbPlans.rows,
+// //       razorpay_plans: razorpayPlans.length,
+// //       razorpay_plan_details: razorpayPlans,
+// //       razorpay_error: razorpayError
+// //     });
+    
+// //   } catch (error) {
+// //     console.error("❌ Test failed:", error);
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Plan test failed",
+// //       error: error.message || "Test failed"
+// //     });
+// //   }
+// // };
+
+// // async function testRazorpayConnection(req, res) {
+// //   try {
+// //     console.log("🧪 Testing Razorpay API connection...");
+    
+// //     // Test API keys first
+// //     if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET) {
+// //       throw new Error("Razorpay API keys not configured properly");
+// //     }
+    
+// //     console.log("API Keys configured:", {
+// //       key_id: process.env.RAZORPAY_KEY_ID?.substring(0, 10) + "...",
+// //       secret: process.env.RAZORPAY_SECRET ? "✓ Present" : "✗ Missing"
+// //     });
+    
+// //     const plans = await razorpay.plans.all({ count: 1 }); // Fetch one plan to test connection
+// //     console.log("✅ Successfully connected to Razorpay API. Plans fetched:", plans.items?.length || 0);
+    
+// //     return res.status(200).json({
+// //       success: true,
+// //       message: "Successfully connected to Razorpay API",
+// //       plans_count: plans.items?.length || 0,
+// //       api_status: "Connected"
+// //     });
+    
+// //   } catch (error) {
+// //     console.error("❌ Failed to connect to Razorpay API:", error);
+// //     console.error("Connection error type:", typeof error);
+// //     console.error("Connection error constructor:", error.constructor?.name);
+    
+// //     let errorMessage = "Failed to connect to Razorpay API";
+// //     let errorDetails = {};
+    
+// //     if (error) {
+// //       if (error.error) {
+// //         errorDetails.razorpay_error = error.error;
+// //         errorMessage = error.error.description || error.error.message || errorMessage;
+// //       } else if (error.message) {
+// //         errorMessage = error.message;
+// //       }
+      
+// //       if (error.statusCode) {
+// //         errorDetails.status_code = error.statusCode;
+// //       }
+// //     }
+    
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: errorMessage,
+// //       error_details: errorDetails,
+// //       api_status: "Disconnected"
+// //     });
+// //   }
+// // }
+
+// // module.exports = {
+// //   startSubscription,
+// //   verifySubscription,
+// //   testPlans,
+// //   testRazorpayConnection,
+// // };
+
+// // const Razorpay = require("razorpay");
+// // const crypto = require("crypto");
+// // const db = require("../config/db");
+
+// // const razorpay = new Razorpay({
+// //   key_id: process.env.RAZORPAY_KEY_ID,
+// //   key_secret: process.env.RAZORPAY_SECRET,
+// // });
+
+// // const startSubscription = async (req, res) => {
+// //   try {
+// //     console.log("🔥 Starting subscription process");
+// //     console.log("Request body:", req.body);
+// //     console.log("User from auth:", req.user?.id);
+    
+// //     const userId = req.user?.id;
+// //     const { plan_id } = req.body;
+    
+// //     if (!userId) {
+// //       console.log("❌ No user ID");
+// //       return res.status(401).json({ 
+// //         success: false,
+// //         message: "Unauthorized user" 
+// //       });
+// //     }
+    
+// //     if (!plan_id) {
+// //       console.log("❌ No plan_id");
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Missing plan_id" 
+// //       });
+// //     }
+    
+// //     console.log("✅ User ID:", userId, "Plan ID:", plan_id);
+    
+// //     // Fetch plan from database
+// //     console.log("📦 Fetching plan from database...");
+// //     const planQuery = await db.query(
+// //       "SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", 
+// //       [plan_id]
+// //     );
+    
+// //     console.log("Plan query result:", planQuery.rows);
+    
+// //     if (planQuery.rows.length === 0) {
+// //       console.log("❌ Plan not found or inactive");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "Plan not found or inactive" 
+// //       });
+// //     }
+    
+// //     const plan = planQuery.rows[0];
+// //     console.log("📋 Plan details:", {
+// //       id: plan.id,
+// //       name: plan.name,
+// //       razorpay_plan_id: plan.razorpay_plan_id,
+// //       price: plan.price,
+// //       interval: plan.interval
+// //     });
+    
+// //     // Check if plan has razorpay_plan_id
+// //     if (!plan.razorpay_plan_id) {
+// //       console.log("❌ Plan missing razorpay_plan_id");
+// //       return res.status(500).json({ 
+// //         success: false,
+// //         message: `Plan '${plan.name}' is not properly configured with Razorpay` 
+// //       });
+// //     }
+    
+// //     // Get user details
+// //     console.log("👤 Fetching user details...");
+// //     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
+    
+// //     if (userQuery.rows.length === 0) {
+// //       console.log("❌ User not found");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "User not found" 
+// //       });
+// //     }
+    
+// //     const user = userQuery.rows[0];
+// //     console.log("👤 User details:", {
+// //       id: user.id,
+// //       name: user.name || user.username,
+// //       email: user.email,
+// //       existing_customer_id: user.razorpay_customer_id || 'none'
+// //     });
+    
+// //     // Create or get Razorpay customer
+// //     let customerId = user.razorpay_customer_id;
+    
+// //     if (!customerId) {
+// //       console.log("⚙️ Creating Razorpay customer...");
+      
+// //       try {
+// //         const customerData = {
+// //           name: user.name || user.username || `User ${user.id}`,
+// //           email: user.email,
+// //           fail_existing: 0
+// //         };
+        
+// //         // Add phone if available and valid
+// //         if (user.phone || user.contact) {
+// //           const phoneNumber = (user.phone || user.contact).toString().trim();
+// //           if (phoneNumber && phoneNumber.length >= 10) {
+// //             customerData.contact = phoneNumber;
+// //           }
+// //         }
+        
+// //         console.log("Creating customer with:", customerData);
+        
+// //         const customer = await razorpay.customers.create(customerData);
+// //         customerId = customer.id;
+        
+// //         console.log("✅ Customer created:", customerId);
+        
+// //         // Update user with customer ID
+// //         await db.query(
+// //           "UPDATE users SET razorpay_customer_id = $1 WHERE id = $2",
+// //           [customerId, userId]
+// //         );
+        
+// //       } catch (customerError) {
+// //         console.error("❌ Customer creation failed:", customerError);
+// //         console.error("Customer error details:", {
+// //           message: customerError.message,
+// //           statusCode: customerError.statusCode,
+// //           error: customerError.error
+// //         });
+        
+// //         return res.status(500).json({
+// //           success: false,
+// //           message: "Failed to create customer profile",
+// //           error: customerError.error?.description || customerError.message || "Customer creation failed"
+// //         });
+// //       }
+// //     }
+    
+// //     // Validate Razorpay plan exists
+// //     console.log("🔍 Validating Razorpay plan exists...");
+// //     try {
+// //       const razorpayPlan = await razorpay.plans.fetch(plan.razorpay_plan_id);
+// //       console.log("✅ Razorpay plan found:", {
+// //         id: razorpayPlan.id,
+// //         name: razorpayPlan.item?.name,
+// //         amount: razorpayPlan.item?.amount,
+// //         currency: razorpayPlan.item?.currency
+// //       });
+// //     } catch (planFetchError) {
+// //       console.error("❌ Razorpay plan not found:", planFetchError);
+// //       return res.status(400).json({
+// //         success: false,
+// //         message: `Plan ${plan.razorpay_plan_id} not found in Razorpay. Please check plan configuration.`,
+// //         error: planFetchError.error?.description || planFetchError.message || "Plan validation failed"
+// //       });
+// //     }
+    
+// //     // Create subscription
+// //     console.log("⚙️ Creating Razorpay subscription...");
+// //     console.log("Using plan_id:", plan.razorpay_plan_id);
+    
+// //     // Define subscription data outside try block to avoid scoping issues
+// //     const subscriptionData = {
+// //       plan_id: plan.razorpay_plan_id,
+// //       customer_notify: 1,
+// //       quantity: 1,
+// //     };
+
+// //     // Set total_count based on plan interval
+// //     if (plan.interval && plan.interval !== 'lifetime') {
+// //       subscriptionData.total_count = 12; // Default to 12 cycles for non-lifetime plans
+// //     } else if (plan.interval === 'lifetime') {
+// //       subscriptionData.total_count = 1; // For lifetime, typically one charge
+// //     }
+    
+// //     // Add customer_id if available
+// //     if (customerId) {
+// //       subscriptionData.customer_id = customerId;
+// //     }
+    
+// //     // Log subscription data before sending to Razorpay
+// //     console.log("Sending subscription data to Razorpay:", JSON.stringify(subscriptionData, null, 2));
+    
+// //     try {
+// //       const subscription = await razorpay.subscriptions.create(subscriptionData);
+// //       console.log("Raw Razorpay subscription response:", JSON.stringify(subscription, null, 2));
+      
+// //       console.log("✅ Subscription created:", {
+// //         id: subscription.id,
+// //         status: subscription.status,
+// //         plan_id: subscription.plan_id,
+// //         customer_id: subscription.customer_id,
+// //         razorpay_plan_id_from_db: plan.razorpay_plan_id
+// //       });
+      
+// //       // Save to database
+// //       console.log("💾 Saving to database...");
+      
+// //       await db.query(
+// //         `INSERT INTO user_subscriptions 
+// //           (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
+// //           VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+// //           ON CONFLICT (user_id) DO UPDATE SET 
+// //             plan_id = EXCLUDED.plan_id,
+// //             razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
+// //             status = EXCLUDED.status,
+// //             current_token_balance = EXCLUDED.current_token_balance,
+// //             updated_at = CURRENT_TIMESTAMP`,
+// //         [
+// //           userId,
+// //           plan.id,
+// //           subscription.id,
+// //           subscription.status, // Use actual Razorpay status
+// //           plan.token_limit || 0,
+// //         ]
+// //       );
+      
+// //       console.log("✅ Subscription saved to database");
+      
+// //       // Return success response
+// //       const response = {
+// //         success: true,
+// //         subscription_id: subscription.id,
+// //         key: process.env.RAZORPAY_KEY_ID,
+// //         customer_id: customerId,
+// //         plan_name: plan.name,
+// //         amount: plan.price * 100, // Convert to paise
+// //         currency: 'INR'
+// //       };
+      
+// //       console.log("🎉 Returning success response to frontend:", JSON.stringify(response, null, 2));
+// //       console.log("Frontend should receive subscription_id:", response.subscription_id);
+      
+// //       return res.status(200).json(response);
+      
+// //     } catch (subscriptionError) {
+// //       console.error("❌ Subscription creation failed:", subscriptionError);
+      
+// //       let errorMessage = "Unknown subscription error";
+// //       let rawErrorDetails = {};
+
+// //       if (subscriptionError) {
+// //         if (subscriptionError.error) {
+// //           errorMessage = subscriptionError.error.description || subscriptionError.error.message || errorMessage;
+// //           rawErrorDetails = subscriptionError.error;
+// //         } else if (subscriptionError.message) {
+// //           errorMessage = subscriptionError.message;
+// //         } else if (typeof subscriptionError === 'string') {
+// //           errorMessage = subscriptionError;
+// //         }
+// //         rawErrorDetails = { ...rawErrorDetails, ...subscriptionError }; // Include all properties of subscriptionError
+// //       }
+      
+// //       return res.status(500).json({
+// //         success: false,
+// //         message: "Failed to create subscription",
+// //         error: errorMessage,
+// //         raw_error: JSON.stringify(rawErrorDetails, Object.getOwnPropertyNames(rawErrorDetails))
+// //       });
+// //     }
+    
+// //   } catch (err) {
+// //     console.error("❌ Unexpected error:", err);
+// //     console.error("Stack trace:", err.stack);
+// //     console.error("Error type:", typeof err);
+// //     console.error("Error constructor:", err.constructor?.name);
+    
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Subscription initiation failed",
+// //       error: err.message || "Unknown error occurred",
+// //       error_type: err.constructor?.name || "Unknown"
+// //     });
+// //   }
+// // };
+
+// // const verifySubscription = async (req, res) => {
+// //   try {
+// //     console.log("🔥 Verifying subscription payment");
+    
+// //     const userId = req.user?.id;
+// //     const { 
+// //       razorpay_payment_id, 
+// //       razorpay_subscription_id, 
+// //       razorpay_signature 
+// //     } = req.body;
+    
+// //     console.log("Verification data received:", {
+// //       userId,
+// //       razorpay_payment_id,
+// //       razorpay_subscription_id,
+// //       has_signature: !!razorpay_signature
+// //     });
+    
+// //     if (!userId) {
+// //       return res.status(401).json({ 
+// //         success: false,
+// //         message: "Unauthorized user" 
+// //       });
+// //     }
+    
+// //     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Missing payment verification data" 
+// //       });
+// //     }
+    
+// //     // Verify signature
+// //     const expectedSignature = crypto
+// //       .createHmac('sha256', process.env.RAZORPAY_SECRET)
+// //       .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+// //       .digest('hex');
+    
+// //     if (expectedSignature !== razorpay_signature) {
+// //       console.log("❌ Invalid signature");
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Invalid payment signature" 
+// //       });
+// //     }
+    
+// //     console.log("✅ Signature verified");
+    
+// //     // Update subscription status in database
+// //     const updateResult = await db.query(
+// //       `UPDATE user_subscriptions 
+// //        SET status = 'active', 
+// //            razorpay_payment_id = $1,
+// //            activated_at = CURRENT_TIMESTAMP,
+// //            updated_at = CURRENT_TIMESTAMP
+// //        WHERE user_id = $2 AND razorpay_subscription_id = $3
+// //        RETURNING *`,
+// //       [razorpay_payment_id, userId, razorpay_subscription_id]
+// //     );
+    
+// //     if (updateResult.rows.length === 0) {
+// //       console.log("❌ Subscription not found in database");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "Subscription not found" 
+// //       });
+// //     }
+    
+// //     console.log("✅ Subscription verified and activated");
+    
+// //     return res.status(200).json({
+// //       success: true,
+// //       message: "Subscription verified successfully",
+// //       subscription: updateResult.rows[0]
+// //     });
+    
+// //   } catch (err) {
+// //     console.error("❌ Verification error:", err);
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Subscription verification failed",
+// //       error: err.message || "Verification failed",
+// //     });
+// //   }
+// // };
+
+// // // Test endpoint to check plans
+// // const testPlans = async (req, res) => {
+// //   try {
+// //     console.log("🧪 Testing plan configuration...");
+    
+// //     // Check database plans
+// //     const dbPlans = await db.query(
+// //       "SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id"
+// //     );
+    
+// //     console.log("Database plans:", dbPlans.rows);
+    
+// //     // Check Razorpay plans with error handling
+// //     let razorpayPlans = [];
+// //     let razorpayError = null;
+    
+// //     try {
+// //       const rzpPlans = await razorpay.plans.all({ count: 10 });
+// //       razorpayPlans = rzpPlans.items?.map(p => ({
+// //         id: p.id,
+// //         name: p.item?.name,
+// //         amount: p.item?.amount,
+// //         currency: p.item?.currency,
+// //         period: p.period
+// //       })) || [];
+// //     } catch (error) {
+// //       console.error("Failed to fetch Razorpay plans:", error);
+// //       razorpayError = error.message || "Failed to connect to Razorpay";
+// //     }
+    
+// //     console.log("Razorpay plans:", razorpayPlans);
+    
+// //     return res.json({
+// //       success: true,
+// //       database_plans: dbPlans.rows,
+// //       razorpay_plans: razorpayPlans.length,
+// //       razorpay_plan_details: razorpayPlans,
+// //       razorpay_error: razorpayError
+// //     });
+    
+// //   } catch (error) {
+// //     console.error("❌ Test failed:", error);
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Plan test failed",
+// //       error: error.message || "Test failed"
+// //     });
+// //   }
+// // };
+
+// // async function testRazorpayConnection(req, res) {
+// //   try {
+// //     console.log("🧪 Testing Razorpay API connection...");
+    
+// //     // Test API keys first
+// //     if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET) {
+// //       throw new Error("Razorpay API keys not configured properly");
+// //     }
+    
+// //     console.log("API Keys configured:", {
+// //       key_id: process.env.RAZORPAY_KEY_ID?.substring(0, 10) + "...",
+// //       secret: process.env.RAZORPAY_SECRET ? "✓ Present" : "✗ Missing"
+// //     });
+    
+// //     const plans = await razorpay.plans.all({ count: 1 }); // Fetch one plan to test connection
+// //     console.log("✅ Successfully connected to Razorpay API. Plans fetched:", plans.items?.length || 0);
+    
+// //     return res.status(200).json({
+// //       success: true,
+// //       message: "Successfully connected to Razorpay API",
+// //       plans_count: plans.items?.length || 0,
+// //       api_status: "Connected"
+// //     });
+    
+// //   } catch (error) {
+// //     console.error("❌ Failed to connect to Razorpay API:", error);
+// //     console.error("Connection error type:", typeof error);
+// //     console.error("Connection error constructor:", error.constructor?.name);
+    
+// //     let errorMessage = "Failed to connect to Razorpay API";
+// //     let errorDetails = {};
+    
+// //     if (error) {
+// //       if (error.error) {
+// //         errorDetails.razorpay_error = error.error;
+// //         errorMessage = error.error.description || error.error.message || errorMessage;
+// //       } else if (error.message) {
+// //         errorMessage = error.message;
+// //       }
+      
+// //       if (error.statusCode) {
+// //         errorDetails.status_code = error.statusCode;
+// //       }
+// //     }
+    
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: errorMessage,
+// //       error_details: errorDetails,
+// //       api_status: "Disconnected"
+// //     });
+// //   }
+// // }
+
+// // module.exports = {
+// //   startSubscription,
+// //   verifySubscription,
+// //   testPlans,
+// //   testRazorpayConnection,
+// // };
+
+// // const Razorpay = require("razorpay");
+// // const crypto = require("crypto");
+// // const db = require("../config/db");
+
+// // const razorpay = new Razorpay({
+// //   key_id: process.env.RAZORPAY_KEY_ID,
+// //   key_secret: process.env.RAZORPAY_SECRET,
+// // });
+
+// // const startSubscription = async (req, res) => {
+// //   try {
+// //     console.log("🔥 Starting subscription process");
+// //     console.log("Request body:", req.body);
+// //     console.log("User from auth:", req.user?.id);
+    
+// //     const userId = req.user?.id;
+// //     const { plan_id } = req.body;
+    
+// //     if (!userId) {
+// //       console.log("❌ No user ID");
+// //       return res.status(401).json({ 
+// //         success: false,
+// //         message: "Unauthorized user" 
+// //       });
+// //     }
+    
+// //     if (!plan_id) {
+// //       console.log("❌ No plan_id");
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Missing plan_id" 
+// //       });
+// //     }
+    
+// //     console.log("✅ User ID:", userId, "Plan ID:", plan_id);
+    
+// //     // Fetch plan from database
+// //     console.log("📦 Fetching plan from database...");
+// //     const planQuery = await db.query(
+// //       "SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", 
+// //       [plan_id]
+// //     );
+    
+// //     console.log("Plan query result:", planQuery.rows);
+    
+// //     if (planQuery.rows.length === 0) {
+// //       console.log("❌ Plan not found or inactive");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "Plan not found or inactive" 
+// //       });
+// //     }
+    
+// //     const plan = planQuery.rows[0];
+// //     console.log("📋 Plan details:", {
+// //       id: plan.id,
+// //       name: plan.name,
+// //       razorpay_plan_id: plan.razorpay_plan_id,
+// //       price: plan.price,
+// //       interval: plan.interval
+// //     });
+    
+// //     // Check if plan has razorpay_plan_id
+// //     if (!plan.razorpay_plan_id) {
+// //       console.log("❌ Plan missing razorpay_plan_id");
+// //       return res.status(500).json({ 
+// //         success: false,
+// //         message: `Plan '${plan.name}' is not properly configured with Razorpay` 
+// //       });
+// //     }
+    
+// //     // Get user details
+// //     console.log("👤 Fetching user details...");
+// //     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
+    
+// //     if (userQuery.rows.length === 0) {
+// //       console.log("❌ User not found");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "User not found" 
+// //       });
+// //     }
+    
+// //     const user = userQuery.rows[0];
+// //     console.log("👤 User details:", {
+// //       id: user.id,
+// //       name: user.name || user.username,
+// //       email: user.email,
+// //       existing_customer_id: user.razorpay_customer_id || 'none'
+// //     });
+    
+// //     // Create or get Razorpay customer
+// //     let customerId = user.razorpay_customer_id;
+    
+// //     if (!customerId) {
+// //       console.log("⚙️ Creating Razorpay customer...");
+      
+// //       try {
+// //         const customerData = {
+// //           name: user.name || user.username || `User ${user.id}`,
+// //           email: user.email,
+// //           fail_existing: 0
+// //         };
+        
+// //         // Add phone if available and valid
+// //         if (user.phone || user.contact) {
+// //           const phoneNumber = (user.phone || user.contact).toString().trim();
+// //           if (phoneNumber && phoneNumber.length >= 10) {
+// //             customerData.contact = phoneNumber;
+// //           }
+// //         }
+        
+// //         console.log("Creating customer with:", customerData);
+        
+// //         const customer = await razorpay.customers.create(customerData);
+// //         customerId = customer.id;
+        
+// //         console.log("✅ Customer created:", customerId);
+        
+// //         // Update user with customer ID
+// //         await db.query(
+// //           "UPDATE users SET razorpay_customer_id = $1 WHERE id = $2",
+// //           [customerId, userId]
+// //         );
+        
+// //       } catch (customerError) {
+// //         console.error("❌ Customer creation failed:", customerError);
+// //         console.error("Customer error details:", {
+// //           message: customerError.message,
+// //           statusCode: customerError.statusCode,
+// //           error: customerError.error
+// //         });
+        
+// //         return res.status(500).json({
+// //           success: false,
+// //           message: "Failed to create customer profile",
+// //           error: customerError?.error?.description || customerError?.message || "Customer creation failed"
+// //         });
+// //       }
+// //     }
+    
+// //     // Validate Razorpay plan exists
+// //     console.log("🔍 Validating Razorpay plan exists...");
+// //     console.log(`Attempting to fetch Razorpay plan with ID: ${plan.razorpay_plan_id}`);
+
+// //     if (!plan.razorpay_plan_id || typeof plan.razorpay_plan_id !== 'string') {
+// //       console.error("❌ Invalid or missing Razorpay plan ID in database:", plan.razorpay_plan_id);
+// //       return res.status(400).json({
+// //         success: false,
+// //         message: "Invalid plan configuration: Razorpay plan ID is missing or malformed.",
+// //         razorpay_plan_id: plan.razorpay_plan_id
+// //       });
+// //     }
+
+// //     try {
+// //       const razorpayPlan = await razorpay.plans.fetch(plan.razorpay_plan_id);
+// //       console.log("✅ Razorpay plan found:", {
+// //         id: razorpayPlan.id,
+// //         name: razorpayPlan.item?.name,
+// //         amount: razorpayPlan.item?.amount,
+// //         currency: razorpayPlan.item?.currency
+// //       });
+// //     } catch (planFetchError) {
+// //       console.error("❌ Razorpay plan not found or API error:", planFetchError);
+// //       console.error("Full planFetchError object:", JSON.stringify(planFetchError, Object.getOwnPropertyNames(planFetchError), 2));
+
+// //       let planErrorMessage = "Plan validation failed";
+// //       let planErrorDetails = {};
+
+// //       if (planFetchError instanceof TypeError) {
+// //         // Handle TypeError specifically, as it doesn't have a .error property
+// //         planErrorMessage = planFetchError.message;
+// //         planErrorDetails.fullError = {
+// //           name: planFetchError.name,
+// //           message: planFetchError.message,
+// //           stack: planFetchError.stack
+// //         };
+// //       } else if (planFetchError) {
+// //         // Handle standard Razorpay API errors or other errors
+// //         if (planFetchError.error && typeof planFetchError.error === 'object') {
+// //           planErrorMessage = planFetchError.error.description || planFetchError.error.message || planErrorMessage;
+// //           planErrorDetails.razorpay_error = planFetchError.error;
+// //         } else if (planFetchError.message) {
+// //           planErrorMessage = planFetchError.message;
+// //         } else if (typeof planFetchError === 'string') {
+// //           planErrorMessage = planFetchError;
+// //         }
+        
+// //         if (planFetchError.statusCode) {
+// //           planErrorDetails.statusCode = planFetchError.statusCode;
+// //         }
+        
+// //         planErrorDetails.fullError = {
+// //           name: planFetchError?.name,
+// //           message: planFetchError?.message,
+// //           stack: planFetchError?.stack,
+// //           ...(planFetchError.error && typeof planFetchError.error === 'object' && { razorpay_error_details: planFetchError.error })
+// //         };
+// //       }
+      
+// //       return res.status(400).json({
+// //         success: false,
+// //         message: `Plan ${plan.razorpay_plan_id} not found in Razorpay. Please check plan configuration.`,
+// //         error: {
+// //           message: planErrorMessage,
+// //           details: planErrorDetails.fullError || {} // Ensure error is an object
+// //         },
+// //         error_details: planErrorDetails, // Keep for debugging
+// //         razorpay_plan_id: plan.razorpay_plan_id // Include the problematic plan ID
+// //       });
+// //     }
+    
+// //     // Create subscription
+// //     console.log("⚙️ Creating Razorpay subscription...");
+// //     console.log("Using plan_id:", plan.razorpay_plan_id);
+    
+// //     // Define subscription data outside try block to avoid scoping issues
+// //     const subscriptionData = {
+// //       plan_id: plan.razorpay_plan_id,
+// //       customer_notify: 1,
+// //       quantity: 1,
+// //     };
+
+// //     // Set total_count based on plan interval
+// //     if (plan.interval && plan.interval !== 'lifetime') {
+// //       subscriptionData.total_count = 12; // Default to 12 cycles for non-lifetime plans
+// //     } else if (plan.interval === 'lifetime') {
+// //       subscriptionData.total_count = 1; // For lifetime, typically one charge
+// //     }
+    
+// //     // Add customer_id if available
+// //     // Add customer_id if available, ensuring it's a string
+// //     if (customerId) {
+// //       subscriptionData.customer_id = String(customerId);
+// //     }
+    
+// //     // Log subscription data before sending to Razorpay
+// //     console.log("Sending subscription data to Razorpay:", JSON.stringify(subscriptionData, null, 2));
+    
+// //     try {
+// //       const subscription = await razorpay.subscriptions.create(subscriptionData);
+// //       console.log("✅ Raw Razorpay subscription response (success):", JSON.stringify(subscription, null, 2));
+      
+// //       console.log("✅ Subscription created successfully:", {
+// //         id: subscription.id,
+// //         status: subscription.status,
+// //         plan_id: subscription.plan_id,
+// //         customer_id: subscription.customer_id,
+// //         razorpay_plan_id_from_db: plan.razorpay_plan_id
+// //       });
+      
+// //       // Save to database
+// //       console.log("💾 Saving to database...");
+      
+// //       await db.query(
+// //         `INSERT INTO user_subscriptions 
+// //           (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
+// //           VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+// //           ON CONFLICT (user_id) DO UPDATE SET 
+// //             plan_id = EXCLUDED.plan_id,
+// //             razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
+// //             status = EXCLUDED.status,
+// //             current_token_balance = EXCLUDED.current_token_balance,
+// //             updated_at = CURRENT_TIMESTAMP`,
+// //         [
+// //           userId,
+// //           plan.id,
+// //           subscription.id,
+// //           subscription.status, // Use actual Razorpay status
+// //           plan.token_limit || 0,
+// //         ]
+// //       );
+      
+// //       console.log("✅ Subscription saved to database");
+      
+// //       // Return success response
+// //       const response = {
+// //         success: true,
+// //         subscription_id: subscription.id,
+// //         key: process.env.RAZORPAY_KEY_ID,
+// //         customer_id: customerId,
+// //         plan: {
+// //           name: plan.name || 'Unknown Plan', // Provide a default name if plan.name is null
+// //           amount: plan.price * 100, // Convert to paise
+// //           currency: 'INR'
+// //         }
+// //       };
+      
+// //       console.log("🎉 Returning success response to frontend:", JSON.stringify(response, null, 2));
+// //       console.log("Frontend should receive subscription_id:", response.subscription_id);
+// //       console.log("Final plan object in response:", JSON.stringify(response.plan, null, 2)); // Added log
+      
+// //       return res.status(200).json(response);
+      
+// //     } catch (subscriptionError) {
+// //       console.error("❌ Subscription creation failed:", subscriptionError);
+// //       console.error("Subscription error stack:", subscriptionError.stack);
+      
+// //       let errorMessage = "Failed to create subscription";
+// //       let rawErrorDetails = {};
+
+// //       // Safely extract error information
+// //       if (subscriptionError) {
+// //         // Handle Razorpay API errors
+// //         // Safely handle Razorpay API errors (which often have an 'error' object)
+// //         if (subscriptionError && subscriptionError.error) {
+// //           errorMessage = subscriptionError.error.description || subscriptionError.error.message || errorMessage;
+// //           rawErrorDetails.razorpay_error = subscriptionError.error;
+// //         }
+// //         // Handle general Error objects
+// //         else if (subscriptionError instanceof Error) {
+// //           errorMessage = subscriptionError.message;
+// //           rawErrorDetails.name = subscriptionError.name;
+// //           rawErrorDetails.message = subscriptionError.message;
+// //           rawErrorDetails.stack = subscriptionError.stack;
+// //         }
+// //         // Handle cases where error is a string
+// //         else if (typeof subscriptionError === 'string') {
+// //           errorMessage = subscriptionError;
+// //         }
+        
+// //         // Include status code if available
+// //         if (subscriptionError && subscriptionError.statusCode) {
+// //           rawErrorDetails.statusCode = subscriptionError.statusCode;
+// //         }
+        
+// //         // Ensure fullError is always an object, even if empty
+// //         rawErrorDetails.fullError = {
+// //           name: subscriptionError?.name,
+// //           message: subscriptionError?.message,
+// //           stack: subscriptionError?.stack,
+// //           // Add other relevant properties if they exist directly on subscriptionError
+// //           ...(subscriptionError && subscriptionError.error && { razorpay_error_details: subscriptionError.error })
+// //         };
+// //       }
+      
+// //       return res.status(500).json({
+// //         success: false,
+// //         message: "Failed to create subscription",
+// //         error: errorMessage,
+// //         raw_error: JSON.stringify(rawErrorDetails, Object.getOwnPropertyNames(rawErrorDetails))
+// //       });
+// //     }
+    
+// //   } catch (err) {
+// //     console.error("❌ Unexpected error in startSubscription:", err);
+// //     console.error("Stack trace:", err.stack);
+// //     console.error("Error type:", typeof err);
+// //     console.error("Error constructor:", err.constructor?.name);
+
+// //     let errorMessage = "Subscription initiation failed due to an unexpected error.";
+// //     let errorDetails = {
+// //       name: err?.name || "UnknownError",
+// //       message: err?.message || "No message available",
+// //       stack: err?.stack || "No stack trace available",
+// //       originalError: JSON.stringify(err, Object.getOwnPropertyNames(err)) // Capture full error object
+// //     };
+    
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: errorMessage,
+// //       error: {
+// //         message: errorMessage,
+// //         details: errorDetails
+// //       },
+// //       error_details: errorDetails, // For backward compatibility/detailed debugging
+// //       error_type: err?.constructor?.name || "Unknown"
+// //     });
+// //   }
+// // };
+
+// // const verifySubscription = async (req, res) => {
+// //   try {
+// //     console.log("🔥 Verifying subscription payment");
+    
+// //     const userId = req.user?.id;
+// //     const { 
+// //       razorpay_payment_id, 
+// //       razorpay_subscription_id, 
+// //       razorpay_signature 
+// //     } = req.body;
+    
+// //     console.log("Verification data received:", {
+// //       userId,
+// //       razorpay_payment_id,
+// //       razorpay_subscription_id,
+// //       has_signature: !!razorpay_signature
+// //     });
+    
+// //     if (!userId) {
+// //       return res.status(401).json({ 
+// //         success: false,
+// //         message: "Unauthorized user" 
+// //       });
+// //     }
+    
+// //     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Missing payment verification data" 
+// //       });
+// //     }
+    
+// //     // Verify signature
+// //     const expectedSignature = crypto
+// //       .createHmac('sha256', process.env.RAZORPAY_SECRET)
+// //       .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+// //       .digest('hex');
+    
+// //     if (expectedSignature !== razorpay_signature) {
+// //       console.log("❌ Invalid signature");
+// //       console.log("Expected:", expectedSignature);
+// //       console.log("Received:", razorpay_signature);
+// //       return res.status(400).json({ 
+// //         success: false,
+// //         message: "Invalid payment signature" 
+// //       });
+// //     }
+    
+// //     console.log("✅ Signature verified");
+    
+// //     // Update subscription status in database
+// //     const updateResult = await db.query(
+// //       `UPDATE user_subscriptions 
+// //        SET status = 'active', 
+// //            razorpay_payment_id = $1,
+// //            activated_at = CURRENT_TIMESTAMP,
+// //            updated_at = CURRENT_TIMESTAMP
+// //        WHERE user_id = $2 AND razorpay_subscription_id = $3
+// //        RETURNING *`,
+// //       [razorpay_payment_id, userId, razorpay_subscription_id]
+// //     );
+    
+// //     if (updateResult.rows.length === 0) {
+// //       console.log("❌ Subscription not found in database");
+// //       return res.status(404).json({ 
+// //         success: false,
+// //         message: "Subscription not found" 
+// //       });
+// //     }
+    
+// //     console.log("✅ Subscription verified and activated");
+    
+// //     return res.status(200).json({
+// //       success: true,
+// //       message: "Subscription verified successfully",
+// //       subscription: updateResult.rows[0]
+// //     });
+    
+// //   } catch (err) {
+// //     console.error("❌ Verification error:", err);
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Subscription verification failed",
+// //       error: err?.message || "Verification failed",
+// //     });
+// //   }
+// // };
+
+// // // Test endpoint to check plans
+// // const testPlans = async (req, res) => {
+// //   try {
+// //     console.log("🧪 Testing plan configuration...");
+    
+// //     // Check database plans
+// //     const dbPlans = await db.query(
+// //       "SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id"
+// //     );
+    
+// //     console.log("Database plans:", dbPlans.rows);
+    
+// //     // Check Razorpay plans with error handling
+// //     let razorpayPlans = [];
+// //     let razorpayError = null;
+    
+// //     try {
+// //       const rzpPlans = await razorpay.plans.all({ count: 10 });
+// //       razorpayPlans = rzpPlans.items?.map(p => ({
+// //         id: p.id,
+// //         name: p.item?.name,
+// //         amount: p.item?.amount,
+// //         currency: p.item?.currency,
+// //         period: p.period
+// //       })) || [];
+// //     } catch (error) {
+// //       console.error("Failed to fetch Razorpay plans:", error);
+// //       razorpayError = error?.message || "Failed to connect to Razorpay";
+// //     }
+    
+// //     console.log("Razorpay plans:", razorpayPlans);
+    
+// //     return res.json({
+// //       success: true,
+// //       database_plans: dbPlans.rows,
+// //       razorpay_plans: razorpayPlans.length,
+// //       razorpay_plan_details: razorpayPlans,
+// //       razorpay_error: razorpayError
+// //     });
+    
+// //   } catch (error) {
+// //     console.error("❌ Test failed:", error);
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Plan test failed",
+// //       error: error?.message || "Test failed"
+// //     });
+// //   }
+// // };
+
+// // async function testRazorpayConnection(req, res) {
+// //   try {
+// //     console.log("🧪 Testing Razorpay API connection...");
+    
+// //     // Test API keys first
+// //     if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET) {
+// //       throw new Error("Razorpay API keys not configured properly");
+// //     }
+    
+// //     console.log("API Keys configured:", {
+// //       key_id: process.env.RAZORPAY_KEY_ID?.substring(0, 10) + "...",
+// //       secret: process.env.RAZORPAY_SECRET ? "✓ Present" : "✗ Missing"
+// //     });
+    
+// //     const plans = await razorpay.plans.all({ count: 1 }); // Fetch one plan to test connection
+// //     console.log("✅ Successfully connected to Razorpay API. Plans fetched:", plans.items?.length || 0);
+    
+// //     return res.status(200).json({
+// //       success: true,
+// //       message: "Successfully connected to Razorpay API",
+// //       plans_count: plans.items?.length || 0,
+// //       api_status: "Connected"
+// //     });
+    
+// //   } catch (error) {
+// //     console.error("❌ Failed to connect to Razorpay API:", error);
+// //     console.error("Connection error type:", typeof error);
+// //     console.error("Connection error constructor:", error.constructor?.name);
+    
+// //     let errorMessage = "Failed to connect to Razorpay API";
+// //     let errorDetails = {};
+    
+// //     if (error) {
+// //       if (error.error) {
+// //         errorDetails.razorpay_error = error.error;
+// //         errorMessage = error.error.description || error.error.message || errorMessage;
+// //       } else if (error.message) {
+// //         errorMessage = error.message;
+// //       }
+      
+// //       if (error.statusCode) {
+// //         errorDetails.status_code = error.statusCode;
+// //       }
+// //     }
+    
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: errorMessage,
+// //       error_details: errorDetails,
+// //       api_status: "Disconnected"
+// //     });
+// //   }
+// // }
+
+// // module.exports = {
+// //   startSubscription,
+// //   verifySubscription,
+// //   testPlans,
+// //   testRazorpayConnection,
+// // };
+
+
+// // backend/controllers/paymentController.js
+
+// // const Razorpay = require("razorpay");
+// // const crypto = require("crypto");
+// // const db = require("../config/db");
+
+// // const razorpay = new Razorpay({
+// //   key_id: process.env.RAZORPAY_KEY_ID,
+// //   key_secret: process.env.RAZORPAY_SECRET,
+// // });
+
+// // const getCircularReplacer = () => {
+// //   const seen = new WeakSet();
+// //   return (key, value) => {
+// //     if (typeof value === "object" && value !== null) {
+// //       if (seen.has(value)) return;
+// //       seen.add(value);
+// //     }
+// //     return value;
+// //   };
+// // };
+
+// // const startSubscription = async (req, res) => {
+// //   try {
+// //     const userId = req.user?.id;
+// //     const { plan_id } = req.body;
+// //     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized user" });
+// //     if (!plan_id) return res.status(400).json({ success: false, message: "Missing plan_id" });
+
+// //     const planQuery = await db.query("SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", [plan_id]);
+// //     if (planQuery.rows.length === 0) return res.status(404).json({ success: false, message: "Plan not found or inactive" });
+// //     const plan = planQuery.rows[0];
+// //     if (!plan.razorpay_plan_id) return res.status(500).json({ success: false, message: `Plan '${plan.name}' is not properly configured with Razorpay` });
+
+// //     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
+// //     if (userQuery.rows.length === 0) return res.status(404).json({ success: false, message: "User not found" });
+// //     const user = userQuery.rows[0];
+
+// //     let customerId = user.razorpay_customer_id;
+// //     if (!customerId) {
+// //       try {
+// //         const customerData = { name: user.name || user.username || `User ${user.id}`, email: user.email, fail_existing: 0 };
+// //         if (user.phone || user.contact) customerData.contact = user.phone || user.contact;
+// //         const customer = await razorpay.customers.create(customerData);
+// //         customerId = customer.id;
+// //         await db.query("UPDATE users SET razorpay_customer_id = $1 WHERE id = $2", [customerId, userId]);
+// //       } catch (customerError) {
+// //         return res.status(500).json({ success: false, message: "Failed to create customer profile", error: customerError?.message || "Unknown customer creation error" });
+// //       }
+// //     }
+
+// //     let subscription;
+// //     try {
+// //       const subscriptionData = {
+// //         plan_id: plan.razorpay_plan_id,
+// //         customer_notify: 1,
+// //         quantity: 1,
+// //       };
+// //       if (plan.interval !== 'lifetime') subscriptionData.total_count = 12;
+// //       else subscriptionData.total_count = 1;
+
+// //       // Add customer_id if available, ensuring it's a string
+// //       if (customerId) {
+// //         subscriptionData.customer_id = String(customerId);
+// //       }
+
+// //       subscription = await razorpay.subscriptions.create(subscriptionData);
+
+// //       if (!subscription || typeof subscription !== 'object' || !subscription.id) {
+// //         throw new Error("Invalid or null subscription response from Razorpay.");
+// //       }
+
+// //     } catch (err) {
+// //       const safeError = {
+// //         name: err?.name || "UnknownError",
+// //         message: err?.message || "Subscription creation failed",
+// //         stack: err?.stack || "No stack",
+// //         raw: err
+// //       };
+
+// //       if (err?.error && typeof err.error === 'object') {
+// //         safeError.razorpay_error = err.error;
+// //       }
+
+// //       return res.status(500).json({
+// //         success: false,
+// //         message: "Failed to create subscription",
+// //         error: safeError.message,
+// //         raw_error: JSON.stringify(safeError, getCircularReplacer())
+// //       });
+// //     }
+
+// //     await db.query(
+// //       `INSERT INTO user_subscriptions 
+// //         (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
+// //        VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+// //        ON CONFLICT (user_id) DO UPDATE SET 
+// //          plan_id = EXCLUDED.plan_id,
+// //          razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
+// //          status = EXCLUDED.status,
+// //          current_token_balance = EXCLUDED.current_token_balance,
+// //          updated_at = CURRENT_TIMESTAMP`,
+// //       [userId, plan.id, subscription.id, subscription.status, plan.token_limit || 0]
+// //     );
+
+// //     return res.status(200).json({
+// //       success: true,
+// //       subscription_id: subscription.id,
+// //       key: process.env.RAZORPAY_KEY_ID,
+// //       customer_id: customerId,
+// //       plan
+// //     });
+
+// //   } catch (err) {
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Subscription initiation failed due to an unexpected error.",
+// //       error: err?.message || "Unknown error",
+// //       raw_error: JSON.stringify(err, getCircularReplacer())
+// //     });
+// //   }
+// // };
+
+// // const verifySubscription = async (req, res) => {
+// //   try {
+// //     const userId = req.user?.id;
+// //     const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body;
+// //     if (!userId || !razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
+// //       return res.status(400).json({ success: false, message: "Missing verification data" });
+// //     }
+// //     const expectedSignature = crypto.createHmac('sha256', process.env.RAZORPAY_SECRET).update(`${razorpay_payment_id}|${razorpay_subscription_id}`).digest('hex');
+// //     if (expectedSignature !== razorpay_signature) {
+// //       return res.status(400).json({ success: false, message: "Invalid payment signature" });
+// //     }
+// //     const updateResult = await db.query(
+// //       `UPDATE user_subscriptions SET status = 'active', razorpay_payment_id = $1, activated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2 AND razorpay_subscription_id = $3 RETURNING *`,
+// //       [razorpay_payment_id, userId, razorpay_subscription_id]
+// //     );
+// //     if (updateResult.rows.length === 0) return res.status(404).json({ success: false, message: "Subscription not found" });
+// //     return res.status(200).json({ success: true, message: "Subscription verified successfully", subscription: updateResult.rows[0] });
+// //   } catch (err) {
+// //     return res.status(500).json({ success: false, message: "Subscription verification failed", error: err.message });
+// //   }
+// // };
+
+// // const testPlans = async (req, res) => {
+// //   try {
+// //     const dbPlans = await db.query("SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id");
+// //     const rzpPlans = await razorpay.plans.all({ count: 10 });
+// //     return res.json({
+// //       success: true,
+// //       database_plans: dbPlans.rows,
+// //       razorpay_plans: rzpPlans.items?.length || 0,
+// //       razorpay_plan_details: rzpPlans.items?.map(p => ({ id: p.id, name: p.item?.name, amount: p.item?.amount, currency: p.item?.currency, period: p.period }))
+// //     });
+// //   } catch (error) {
+// //     return res.status(500).json({ success: false, message: "Plan test failed", error: error.message });
+// //   }
+// // };
+
+// // const testRazorpayConnection = async (req, res) => {
+// //   try {
+// //     const plans = await razorpay.plans.all({ count: 1 });
+// //     return res.status(200).json({
+// //       success: true,
+// //       message: "Successfully connected to Razorpay API",
+// //       plans_count: plans.items.length,
+// //     });
+// //   } catch (error) {
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Failed to connect to Razorpay API",
+// //       error: error.error?.description || error.message,
+// //       raw_error: JSON.stringify(error)
+// //     });
+// //   }
+// // };
+
+// // module.exports = {
+// //   startSubscription,
+// //   verifySubscription,
+// //   testPlans,
+// //   testRazorpayConnection,
+// // };
 
 // const Razorpay = require("razorpay");
 // const crypto = require("crypto");
 // const db = require("../config/db");
-
-// const razorpay = new Razorpay({
-//   key_id: process.env.RAZORPAY_KEY_ID,
-//   key_secret: process.env.RAZORPAY_SECRET,
-// });
-
-// const startSubscription = async (req, res) => {
-//   try {
-//     console.log("🔥 Starting subscription process");
-//     console.log("Request body:", req.body);
-//     console.log("User from auth:", req.user?.id);
-    
-//     const userId = req.user?.id;
-//     const { plan_id } = req.body;
-    
-//     if (!userId) {
-//       console.log("❌ No user ID");
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!plan_id) {
-//       console.log("❌ No plan_id");
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing plan_id" 
-//       });
-//     }
-    
-//     console.log("✅ User ID:", userId, "Plan ID:", plan_id);
-    
-//     // Fetch plan from database
-//     console.log("📦 Fetching plan from database...");
-//     const planQuery = await db.query(
-//       "SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", 
-//       [plan_id]
-//     );
-    
-//     console.log("Plan query result:", planQuery.rows);
-    
-//     if (planQuery.rows.length === 0) {
-//       console.log("❌ Plan not found or inactive");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Plan not found or inactive" 
-//       });
-//     }
-    
-//     const plan = planQuery.rows[0];
-//     console.log("📋 Plan details:", {
-//       id: plan.id,
-//       name: plan.name,
-//       razorpay_plan_id: plan.razorpay_plan_id,
-//       price: plan.price,
-//       interval: plan.interval
-//     });
-    
-//     // Check if plan has razorpay_plan_id
-//     if (!plan.razorpay_plan_id) {
-//       console.log("❌ Plan missing razorpay_plan_id");
-//       return res.status(500).json({ 
-//         success: false,
-//         message: `Plan '${plan.name}' is not properly configured with Razorpay` 
-//       });
-//     }
-    
-//     // Get user details
-//     console.log("👤 Fetching user details...");
-//     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
-    
-//     if (userQuery.rows.length === 0) {
-//       console.log("❌ User not found");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "User not found" 
-//       });
-//     }
-    
-//     const user = userQuery.rows[0];
-//     console.log("👤 User details:", {
-//       id: user.id,
-//       name: user.name || user.username,
-//       email: user.email,
-//       existing_customer_id: user.razorpay_customer_id || 'none'
-//     });
-    
-//     // Create or get Razorpay customer
-//     let customerId = user.razorpay_customer_id;
-    
-//     if (!customerId) {
-//       console.log("⚙️ Creating Razorpay customer...");
-      
-//       try {
-//         const customerData = {
-//           name: user.name || user.username || `User ${user.id}`,
-//           email: user.email,
-//           fail_existing: 0
-//         };
-        
-//         // Add phone if available and valid
-//         if (user.phone || user.contact) {
-//           const phoneNumber = (user.phone || user.contact).toString().trim();
-//           if (phoneNumber && phoneNumber.length >= 10) {
-//             customerData.contact = phoneNumber;
-//           }
-//         }
-        
-//         console.log("Creating customer with:", customerData);
-        
-//         const customer = await razorpay.customers.create(customerData);
-//         customerId = customer.id;
-        
-//         console.log("✅ Customer created:", customerId);
-        
-//         // Update user with customer ID
-//         await db.query(
-//           "UPDATE users SET razorpay_customer_id = $1 WHERE id = $2",
-//           [customerId, userId]
-//         );
-        
-//       } catch (customerError) {
-//         console.error("❌ Customer creation failed:", customerError);
-//         console.error("Customer error details:", {
-//           message: customerError.message,
-//           statusCode: customerError.statusCode,
-//           error: customerError.error
-//         });
-        
-//         return res.status(500).json({
-//           success: false,
-//           message: "Failed to create customer profile",
-//           error: customerError.error?.description || customerError.message || "Customer creation failed"
-//         });
-//       }
-//     }
-    
-//     // Validate Razorpay plan exists
-//     console.log("🔍 Validating Razorpay plan exists...");
-//     try {
-//       const razorpayPlan = await razorpay.plans.fetch(plan.razorpay_plan_id);
-//       console.log("✅ Razorpay plan found:", {
-//         id: razorpayPlan.id,
-//         name: razorpayPlan.item?.name,
-//         amount: razorpayPlan.item?.amount,
-//         currency: razorpayPlan.item?.currency
-//       });
-//     } catch (planFetchError) {
-//       console.error("❌ Razorpay plan not found:", planFetchError);
-//       return res.status(400).json({
-//         success: false,
-//         message: `Plan ${plan.razorpay_plan_id} not found in Razorpay. Please check plan configuration.`,
-//         error: planFetchError.error?.description || planFetchError.message || "Plan validation failed"
-//       });
-//     }
-    
-//     // Create subscription
-//     console.log("⚙️ Creating Razorpay subscription...");
-//     console.log("Using plan_id:", plan.razorpay_plan_id);
-    
-//     // Define subscription data outside try block to avoid scoping issues
-//     const subscriptionData = {
-//       plan_id: plan.razorpay_plan_id,
-//       customer_notify: 1,
-//       quantity: 1,
-//     };
-
-//     // Set total_count based on plan interval
-//     if (plan.interval && plan.interval !== 'lifetime') {
-//       subscriptionData.total_count = 12; // Default to 12 cycles for non-lifetime plans
-//     } else if (plan.interval === 'lifetime') {
-//       subscriptionData.total_count = 1; // For lifetime, typically one charge
-//     }
-    
-//     // Add customer_id if available
-//     if (customerId) {
-//       subscriptionData.customer_id = customerId;
-//     }
-    
-//     // Log subscription data before sending to Razorpay
-//     console.log("Sending subscription data to Razorpay:", JSON.stringify(subscriptionData, null, 2));
-    
-//     try {
-//       const subscription = await razorpay.subscriptions.create(subscriptionData);
-//       console.log("Raw Razorpay subscription response:", JSON.stringify(subscription, null, 2));
-      
-//       console.log("✅ Subscription created:", {
-//         id: subscription.id,
-//         status: subscription.status,
-//         plan_id: subscription.plan_id,
-//         customer_id: subscription.customer_id,
-//         razorpay_plan_id_from_db: plan.razorpay_plan_id
-//       });
-      
-//       // Save to database
-//       console.log("💾 Saving to database...");
-      
-//       await db.query(
-//         `INSERT INTO user_subscriptions 
-//           (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
-//           VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-//           ON CONFLICT (user_id) DO UPDATE SET 
-//             plan_id = EXCLUDED.plan_id,
-//             razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
-//             status = EXCLUDED.status,
-//             current_token_balance = EXCLUDED.current_token_balance,
-//             updated_at = CURRENT_TIMESTAMP`,
-//         [
-//           userId,
-//           plan.id,
-//           subscription.id,
-//           subscription.status, // Use actual Razorpay status
-//           plan.token_limit || 0,
-//         ]
-//       );
-      
-//       console.log("✅ Subscription saved to database");
-      
-//       // Return success response
-//       const response = {
-//         success: true,
-//         subscription_id: subscription.id,
-//         key: process.env.RAZORPAY_KEY_ID,
-//         customer_id: customerId,
-//         plan_name: plan.name,
-//         amount: plan.price * 100, // Convert to paise
-//         currency: 'INR'
-//       };
-      
-//       console.log("🎉 Returning success response to frontend:", JSON.stringify(response, null, 2));
-//       console.log("Frontend should receive subscription_id:", response.subscription_id);
-      
-//       return res.status(200).json(response);
-      
-//     } catch (subscriptionError) {
-//       console.error("❌ Subscription creation failed:", subscriptionError);
-      
-//       let errorMessage = "Unknown subscription error";
-//       let rawErrorDetails = {};
-
-//       if (subscriptionError) {
-//         if (subscriptionError.error) {
-//           errorMessage = subscriptionError.error.description || subscriptionError.error.message || errorMessage;
-//           rawErrorDetails = subscriptionError.error;
-//         } else if (subscriptionError.message) {
-//           errorMessage = subscriptionError.message;
-//         } else if (typeof subscriptionError === 'string') {
-//           errorMessage = subscriptionError;
-//         }
-//         rawErrorDetails = { ...rawErrorDetails, ...subscriptionError }; // Include all properties of subscriptionError
-//       }
-      
-//       return res.status(500).json({
-//         success: false,
-//         message: "Failed to create subscription",
-//         error: errorMessage,
-//         raw_error: JSON.stringify(rawErrorDetails, Object.getOwnPropertyNames(rawErrorDetails))
-//       });
-//     }
-    
-//   } catch (err) {
-//     console.error("❌ Unexpected error:", err);
-//     console.error("Stack trace:", err.stack);
-//     console.error("Error type:", typeof err);
-//     console.error("Error constructor:", err.constructor?.name);
-    
-//     return res.status(500).json({
-//       success: false,
-//       message: "Subscription initiation failed",
-//       error: err.message || "Unknown error occurred",
-//       error_type: err.constructor?.name || "Unknown"
-//     });
-//   }
-// };
-
-// const verifySubscription = async (req, res) => {
-//   try {
-//     console.log("🔥 Verifying subscription payment");
-    
-//     const userId = req.user?.id;
-//     const { 
-//       razorpay_payment_id, 
-//       razorpay_subscription_id, 
-//       razorpay_signature 
-//     } = req.body;
-    
-//     console.log("Verification data received:", {
-//       userId,
-//       razorpay_payment_id,
-//       razorpay_subscription_id,
-//       has_signature: !!razorpay_signature
-//     });
-    
-//     if (!userId) {
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing payment verification data" 
-//       });
-//     }
-    
-//     // Verify signature
-//     const expectedSignature = crypto
-//       .createHmac('sha256', process.env.RAZORPAY_SECRET)
-//       .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
-//       .digest('hex');
-    
-//     if (expectedSignature !== razorpay_signature) {
-//       console.log("❌ Invalid signature");
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Invalid payment signature" 
-//       });
-//     }
-    
-//     console.log("✅ Signature verified");
-    
-//     // Update subscription status in database
-//     const updateResult = await db.query(
-//       `UPDATE user_subscriptions 
-//        SET status = 'active', 
-//            razorpay_payment_id = $1,
-//            activated_at = CURRENT_TIMESTAMP,
-//            updated_at = CURRENT_TIMESTAMP
-//        WHERE user_id = $2 AND razorpay_subscription_id = $3
-//        RETURNING *`,
-//       [razorpay_payment_id, userId, razorpay_subscription_id]
-//     );
-    
-//     if (updateResult.rows.length === 0) {
-//       console.log("❌ Subscription not found in database");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Subscription not found" 
-//       });
-//     }
-    
-//     console.log("✅ Subscription verified and activated");
-    
-//     return res.status(200).json({
-//       success: true,
-//       message: "Subscription verified successfully",
-//       subscription: updateResult.rows[0]
-//     });
-    
-//   } catch (err) {
-//     console.error("❌ Verification error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Subscription verification failed",
-//       error: err.message || "Verification failed",
-//     });
-//   }
-// };
-
-// // Test endpoint to check plans
-// const testPlans = async (req, res) => {
-//   try {
-//     console.log("🧪 Testing plan configuration...");
-    
-//     // Check database plans
-//     const dbPlans = await db.query(
-//       "SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id"
-//     );
-    
-//     console.log("Database plans:", dbPlans.rows);
-    
-//     // Check Razorpay plans with error handling
-//     let razorpayPlans = [];
-//     let razorpayError = null;
-    
-//     try {
-//       const rzpPlans = await razorpay.plans.all({ count: 10 });
-//       razorpayPlans = rzpPlans.items?.map(p => ({
-//         id: p.id,
-//         name: p.item?.name,
-//         amount: p.item?.amount,
-//         currency: p.item?.currency,
-//         period: p.period
-//       })) || [];
-//     } catch (error) {
-//       console.error("Failed to fetch Razorpay plans:", error);
-//       razorpayError = error.message || "Failed to connect to Razorpay";
-//     }
-    
-//     console.log("Razorpay plans:", razorpayPlans);
-    
-//     return res.json({
-//       success: true,
-//       database_plans: dbPlans.rows,
-//       razorpay_plans: razorpayPlans.length,
-//       razorpay_plan_details: razorpayPlans,
-//       razorpay_error: razorpayError
-//     });
-    
-//   } catch (error) {
-//     console.error("❌ Test failed:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Plan test failed",
-//       error: error.message || "Test failed"
-//     });
-//   }
-// };
-
-// async function testRazorpayConnection(req, res) {
-//   try {
-//     console.log("🧪 Testing Razorpay API connection...");
-    
-//     // Test API keys first
-//     if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET) {
-//       throw new Error("Razorpay API keys not configured properly");
-//     }
-    
-//     console.log("API Keys configured:", {
-//       key_id: process.env.RAZORPAY_KEY_ID?.substring(0, 10) + "...",
-//       secret: process.env.RAZORPAY_SECRET ? "✓ Present" : "✗ Missing"
-//     });
-    
-//     const plans = await razorpay.plans.all({ count: 1 }); // Fetch one plan to test connection
-//     console.log("✅ Successfully connected to Razorpay API. Plans fetched:", plans.items?.length || 0);
-    
-//     return res.status(200).json({
-//       success: true,
-//       message: "Successfully connected to Razorpay API",
-//       plans_count: plans.items?.length || 0,
-//       api_status: "Connected"
-//     });
-    
-//   } catch (error) {
-//     console.error("❌ Failed to connect to Razorpay API:", error);
-//     console.error("Connection error type:", typeof error);
-//     console.error("Connection error constructor:", error.constructor?.name);
-    
-//     let errorMessage = "Failed to connect to Razorpay API";
-//     let errorDetails = {};
-    
-//     if (error) {
-//       if (error.error) {
-//         errorDetails.razorpay_error = error.error;
-//         errorMessage = error.error.description || error.error.message || errorMessage;
-//       } else if (error.message) {
-//         errorMessage = error.message;
-//       }
-      
-//       if (error.statusCode) {
-//         errorDetails.status_code = error.statusCode;
-//       }
-//     }
-    
-//     return res.status(500).json({
-//       success: false,
-//       message: errorMessage,
-//       error_details: errorDetails,
-//       api_status: "Disconnected"
-//     });
-//   }
-// }
-
-// module.exports = {
-//   startSubscription,
-//   verifySubscription,
-//   testPlans,
-//   testRazorpayConnection,
-// };
-
-// const Razorpay = require("razorpay");
-// const crypto = require("crypto");
-// const db = require("../config/db");
-
-// const razorpay = new Razorpay({
-//   key_id: process.env.RAZORPAY_KEY_ID,
-//   key_secret: process.env.RAZORPAY_SECRET,
-// });
-
-// const startSubscription = async (req, res) => {
-//   try {
-//     console.log("🔥 Starting subscription process");
-//     console.log("Request body:", req.body);
-//     console.log("User from auth:", req.user?.id);
-    
-//     const userId = req.user?.id;
-//     const { plan_id } = req.body;
-    
-//     if (!userId) {
-//       console.log("❌ No user ID");
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!plan_id) {
-//       console.log("❌ No plan_id");
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing plan_id" 
-//       });
-//     }
-    
-//     console.log("✅ User ID:", userId, "Plan ID:", plan_id);
-    
-//     // Fetch plan from database
-//     console.log("📦 Fetching plan from database...");
-//     const planQuery = await db.query(
-//       "SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", 
-//       [plan_id]
-//     );
-    
-//     console.log("Plan query result:", planQuery.rows);
-    
-//     if (planQuery.rows.length === 0) {
-//       console.log("❌ Plan not found or inactive");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Plan not found or inactive" 
-//       });
-//     }
-    
-//     const plan = planQuery.rows[0];
-//     console.log("📋 Plan details:", {
-//       id: plan.id,
-//       name: plan.name,
-//       razorpay_plan_id: plan.razorpay_plan_id,
-//       price: plan.price,
-//       interval: plan.interval
-//     });
-    
-//     // Check if plan has razorpay_plan_id
-//     if (!plan.razorpay_plan_id) {
-//       console.log("❌ Plan missing razorpay_plan_id");
-//       return res.status(500).json({ 
-//         success: false,
-//         message: `Plan '${plan.name}' is not properly configured with Razorpay` 
-//       });
-//     }
-    
-//     // Get user details
-//     console.log("👤 Fetching user details...");
-//     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
-    
-//     if (userQuery.rows.length === 0) {
-//       console.log("❌ User not found");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "User not found" 
-//       });
-//     }
-    
-//     const user = userQuery.rows[0];
-//     console.log("👤 User details:", {
-//       id: user.id,
-//       name: user.name || user.username,
-//       email: user.email,
-//       existing_customer_id: user.razorpay_customer_id || 'none'
-//     });
-    
-//     // Create or get Razorpay customer
-//     let customerId = user.razorpay_customer_id;
-    
-//     if (!customerId) {
-//       console.log("⚙️ Creating Razorpay customer...");
-      
-//       try {
-//         const customerData = {
-//           name: user.name || user.username || `User ${user.id}`,
-//           email: user.email,
-//           fail_existing: 0
-//         };
-        
-//         // Add phone if available and valid
-//         if (user.phone || user.contact) {
-//           const phoneNumber = (user.phone || user.contact).toString().trim();
-//           if (phoneNumber && phoneNumber.length >= 10) {
-//             customerData.contact = phoneNumber;
-//           }
-//         }
-        
-//         console.log("Creating customer with:", customerData);
-        
-//         const customer = await razorpay.customers.create(customerData);
-//         customerId = customer.id;
-        
-//         console.log("✅ Customer created:", customerId);
-        
-//         // Update user with customer ID
-//         await db.query(
-//           "UPDATE users SET razorpay_customer_id = $1 WHERE id = $2",
-//           [customerId, userId]
-//         );
-        
-//       } catch (customerError) {
-//         console.error("❌ Customer creation failed:", customerError);
-//         console.error("Customer error details:", {
-//           message: customerError.message,
-//           statusCode: customerError.statusCode,
-//           error: customerError.error
-//         });
-        
-//         return res.status(500).json({
-//           success: false,
-//           message: "Failed to create customer profile",
-//           error: customerError?.error?.description || customerError?.message || "Customer creation failed"
-//         });
-//       }
-//     }
-    
-//     // Validate Razorpay plan exists
-//     console.log("🔍 Validating Razorpay plan exists...");
-//     console.log(`Attempting to fetch Razorpay plan with ID: ${plan.razorpay_plan_id}`);
-
-//     if (!plan.razorpay_plan_id || typeof plan.razorpay_plan_id !== 'string') {
-//       console.error("❌ Invalid or missing Razorpay plan ID in database:", plan.razorpay_plan_id);
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid plan configuration: Razorpay plan ID is missing or malformed.",
-//         razorpay_plan_id: plan.razorpay_plan_id
-//       });
-//     }
-
-//     try {
-//       const razorpayPlan = await razorpay.plans.fetch(plan.razorpay_plan_id);
-//       console.log("✅ Razorpay plan found:", {
-//         id: razorpayPlan.id,
-//         name: razorpayPlan.item?.name,
-//         amount: razorpayPlan.item?.amount,
-//         currency: razorpayPlan.item?.currency
-//       });
-//     } catch (planFetchError) {
-//       console.error("❌ Razorpay plan not found or API error:", planFetchError);
-//       console.error("Full planFetchError object:", JSON.stringify(planFetchError, Object.getOwnPropertyNames(planFetchError), 2));
-
-//       let planErrorMessage = "Plan validation failed";
-//       let planErrorDetails = {};
-
-//       if (planFetchError instanceof TypeError) {
-//         // Handle TypeError specifically, as it doesn't have a .error property
-//         planErrorMessage = planFetchError.message;
-//         planErrorDetails.fullError = {
-//           name: planFetchError.name,
-//           message: planFetchError.message,
-//           stack: planFetchError.stack
-//         };
-//       } else if (planFetchError) {
-//         // Handle standard Razorpay API errors or other errors
-//         if (planFetchError.error && typeof planFetchError.error === 'object') {
-//           planErrorMessage = planFetchError.error.description || planFetchError.error.message || planErrorMessage;
-//           planErrorDetails.razorpay_error = planFetchError.error;
-//         } else if (planFetchError.message) {
-//           planErrorMessage = planFetchError.message;
-//         } else if (typeof planFetchError === 'string') {
-//           planErrorMessage = planFetchError;
-//         }
-        
-//         if (planFetchError.statusCode) {
-//           planErrorDetails.statusCode = planFetchError.statusCode;
-//         }
-        
-//         planErrorDetails.fullError = {
-//           name: planFetchError?.name,
-//           message: planFetchError?.message,
-//           stack: planFetchError?.stack,
-//           ...(planFetchError.error && typeof planFetchError.error === 'object' && { razorpay_error_details: planFetchError.error })
-//         };
-//       }
-      
-//       return res.status(400).json({
-//         success: false,
-//         message: `Plan ${plan.razorpay_plan_id} not found in Razorpay. Please check plan configuration.`,
-//         error: {
-//           message: planErrorMessage,
-//           details: planErrorDetails.fullError || {} // Ensure error is an object
-//         },
-//         error_details: planErrorDetails, // Keep for debugging
-//         razorpay_plan_id: plan.razorpay_plan_id // Include the problematic plan ID
-//       });
-//     }
-    
-//     // Create subscription
-//     console.log("⚙️ Creating Razorpay subscription...");
-//     console.log("Using plan_id:", plan.razorpay_plan_id);
-    
-//     // Define subscription data outside try block to avoid scoping issues
-//     const subscriptionData = {
-//       plan_id: plan.razorpay_plan_id,
-//       customer_notify: 1,
-//       quantity: 1,
-//     };
-
-//     // Set total_count based on plan interval
-//     if (plan.interval && plan.interval !== 'lifetime') {
-//       subscriptionData.total_count = 12; // Default to 12 cycles for non-lifetime plans
-//     } else if (plan.interval === 'lifetime') {
-//       subscriptionData.total_count = 1; // For lifetime, typically one charge
-//     }
-    
-//     // Add customer_id if available
-//     // Add customer_id if available, ensuring it's a string
-//     if (customerId) {
-//       subscriptionData.customer_id = String(customerId);
-//     }
-    
-//     // Log subscription data before sending to Razorpay
-//     console.log("Sending subscription data to Razorpay:", JSON.stringify(subscriptionData, null, 2));
-    
-//     try {
-//       const subscription = await razorpay.subscriptions.create(subscriptionData);
-//       console.log("✅ Raw Razorpay subscription response (success):", JSON.stringify(subscription, null, 2));
-      
-//       console.log("✅ Subscription created successfully:", {
-//         id: subscription.id,
-//         status: subscription.status,
-//         plan_id: subscription.plan_id,
-//         customer_id: subscription.customer_id,
-//         razorpay_plan_id_from_db: plan.razorpay_plan_id
-//       });
-      
-//       // Save to database
-//       console.log("💾 Saving to database...");
-      
-//       await db.query(
-//         `INSERT INTO user_subscriptions 
-//           (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
-//           VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-//           ON CONFLICT (user_id) DO UPDATE SET 
-//             plan_id = EXCLUDED.plan_id,
-//             razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
-//             status = EXCLUDED.status,
-//             current_token_balance = EXCLUDED.current_token_balance,
-//             updated_at = CURRENT_TIMESTAMP`,
-//         [
-//           userId,
-//           plan.id,
-//           subscription.id,
-//           subscription.status, // Use actual Razorpay status
-//           plan.token_limit || 0,
-//         ]
-//       );
-      
-//       console.log("✅ Subscription saved to database");
-      
-//       // Return success response
-//       const response = {
-//         success: true,
-//         subscription_id: subscription.id,
-//         key: process.env.RAZORPAY_KEY_ID,
-//         customer_id: customerId,
-//         plan: {
-//           name: plan.name || 'Unknown Plan', // Provide a default name if plan.name is null
-//           amount: plan.price * 100, // Convert to paise
-//           currency: 'INR'
-//         }
-//       };
-      
-//       console.log("🎉 Returning success response to frontend:", JSON.stringify(response, null, 2));
-//       console.log("Frontend should receive subscription_id:", response.subscription_id);
-//       console.log("Final plan object in response:", JSON.stringify(response.plan, null, 2)); // Added log
-      
-//       return res.status(200).json(response);
-      
-//     } catch (subscriptionError) {
-//       console.error("❌ Subscription creation failed:", subscriptionError);
-//       console.error("Subscription error stack:", subscriptionError.stack);
-      
-//       let errorMessage = "Failed to create subscription";
-//       let rawErrorDetails = {};
-
-//       // Safely extract error information
-//       if (subscriptionError) {
-//         // Handle Razorpay API errors
-//         // Safely handle Razorpay API errors (which often have an 'error' object)
-//         if (subscriptionError && subscriptionError.error) {
-//           errorMessage = subscriptionError.error.description || subscriptionError.error.message || errorMessage;
-//           rawErrorDetails.razorpay_error = subscriptionError.error;
-//         }
-//         // Handle general Error objects
-//         else if (subscriptionError instanceof Error) {
-//           errorMessage = subscriptionError.message;
-//           rawErrorDetails.name = subscriptionError.name;
-//           rawErrorDetails.message = subscriptionError.message;
-//           rawErrorDetails.stack = subscriptionError.stack;
-//         }
-//         // Handle cases where error is a string
-//         else if (typeof subscriptionError === 'string') {
-//           errorMessage = subscriptionError;
-//         }
-        
-//         // Include status code if available
-//         if (subscriptionError && subscriptionError.statusCode) {
-//           rawErrorDetails.statusCode = subscriptionError.statusCode;
-//         }
-        
-//         // Ensure fullError is always an object, even if empty
-//         rawErrorDetails.fullError = {
-//           name: subscriptionError?.name,
-//           message: subscriptionError?.message,
-//           stack: subscriptionError?.stack,
-//           // Add other relevant properties if they exist directly on subscriptionError
-//           ...(subscriptionError && subscriptionError.error && { razorpay_error_details: subscriptionError.error })
-//         };
-//       }
-      
-//       return res.status(500).json({
-//         success: false,
-//         message: "Failed to create subscription",
-//         error: errorMessage,
-//         raw_error: JSON.stringify(rawErrorDetails, Object.getOwnPropertyNames(rawErrorDetails))
-//       });
-//     }
-    
-//   } catch (err) {
-//     console.error("❌ Unexpected error in startSubscription:", err);
-//     console.error("Stack trace:", err.stack);
-//     console.error("Error type:", typeof err);
-//     console.error("Error constructor:", err.constructor?.name);
-
-//     let errorMessage = "Subscription initiation failed due to an unexpected error.";
-//     let errorDetails = {
-//       name: err?.name || "UnknownError",
-//       message: err?.message || "No message available",
-//       stack: err?.stack || "No stack trace available",
-//       originalError: JSON.stringify(err, Object.getOwnPropertyNames(err)) // Capture full error object
-//     };
-    
-//     return res.status(500).json({
-//       success: false,
-//       message: errorMessage,
-//       error: {
-//         message: errorMessage,
-//         details: errorDetails
-//       },
-//       error_details: errorDetails, // For backward compatibility/detailed debugging
-//       error_type: err?.constructor?.name || "Unknown"
-//     });
-//   }
-// };
-
-// const verifySubscription = async (req, res) => {
-//   try {
-//     console.log("🔥 Verifying subscription payment");
-    
-//     const userId = req.user?.id;
-//     const { 
-//       razorpay_payment_id, 
-//       razorpay_subscription_id, 
-//       razorpay_signature 
-//     } = req.body;
-    
-//     console.log("Verification data received:", {
-//       userId,
-//       razorpay_payment_id,
-//       razorpay_subscription_id,
-//       has_signature: !!razorpay_signature
-//     });
-    
-//     if (!userId) {
-//       return res.status(401).json({ 
-//         success: false,
-//         message: "Unauthorized user" 
-//       });
-//     }
-    
-//     if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Missing payment verification data" 
-//       });
-//     }
-    
-//     // Verify signature
-//     const expectedSignature = crypto
-//       .createHmac('sha256', process.env.RAZORPAY_SECRET)
-//       .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
-//       .digest('hex');
-    
-//     if (expectedSignature !== razorpay_signature) {
-//       console.log("❌ Invalid signature");
-//       console.log("Expected:", expectedSignature);
-//       console.log("Received:", razorpay_signature);
-//       return res.status(400).json({ 
-//         success: false,
-//         message: "Invalid payment signature" 
-//       });
-//     }
-    
-//     console.log("✅ Signature verified");
-    
-//     // Update subscription status in database
-//     const updateResult = await db.query(
-//       `UPDATE user_subscriptions 
-//        SET status = 'active', 
-//            razorpay_payment_id = $1,
-//            activated_at = CURRENT_TIMESTAMP,
-//            updated_at = CURRENT_TIMESTAMP
-//        WHERE user_id = $2 AND razorpay_subscription_id = $3
-//        RETURNING *`,
-//       [razorpay_payment_id, userId, razorpay_subscription_id]
-//     );
-    
-//     if (updateResult.rows.length === 0) {
-//       console.log("❌ Subscription not found in database");
-//       return res.status(404).json({ 
-//         success: false,
-//         message: "Subscription not found" 
-//       });
-//     }
-    
-//     console.log("✅ Subscription verified and activated");
-    
-//     return res.status(200).json({
-//       success: true,
-//       message: "Subscription verified successfully",
-//       subscription: updateResult.rows[0]
-//     });
-    
-//   } catch (err) {
-//     console.error("❌ Verification error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Subscription verification failed",
-//       error: err?.message || "Verification failed",
-//     });
-//   }
-// };
-
-// // Test endpoint to check plans
-// const testPlans = async (req, res) => {
-//   try {
-//     console.log("🧪 Testing plan configuration...");
-    
-//     // Check database plans
-//     const dbPlans = await db.query(
-//       "SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id"
-//     );
-    
-//     console.log("Database plans:", dbPlans.rows);
-    
-//     // Check Razorpay plans with error handling
-//     let razorpayPlans = [];
-//     let razorpayError = null;
-    
-//     try {
-//       const rzpPlans = await razorpay.plans.all({ count: 10 });
-//       razorpayPlans = rzpPlans.items?.map(p => ({
-//         id: p.id,
-//         name: p.item?.name,
-//         amount: p.item?.amount,
-//         currency: p.item?.currency,
-//         period: p.period
-//       })) || [];
-//     } catch (error) {
-//       console.error("Failed to fetch Razorpay plans:", error);
-//       razorpayError = error?.message || "Failed to connect to Razorpay";
-//     }
-    
-//     console.log("Razorpay plans:", razorpayPlans);
-    
-//     return res.json({
-//       success: true,
-//       database_plans: dbPlans.rows,
-//       razorpay_plans: razorpayPlans.length,
-//       razorpay_plan_details: razorpayPlans,
-//       razorpay_error: razorpayError
-//     });
-    
-//   } catch (error) {
-//     console.error("❌ Test failed:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Plan test failed",
-//       error: error?.message || "Test failed"
-//     });
-//   }
-// };
-
-// async function testRazorpayConnection(req, res) {
-//   try {
-//     console.log("🧪 Testing Razorpay API connection...");
-    
-//     // Test API keys first
-//     if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET) {
-//       throw new Error("Razorpay API keys not configured properly");
-//     }
-    
-//     console.log("API Keys configured:", {
-//       key_id: process.env.RAZORPAY_KEY_ID?.substring(0, 10) + "...",
-//       secret: process.env.RAZORPAY_SECRET ? "✓ Present" : "✗ Missing"
-//     });
-    
-//     const plans = await razorpay.plans.all({ count: 1 }); // Fetch one plan to test connection
-//     console.log("✅ Successfully connected to Razorpay API. Plans fetched:", plans.items?.length || 0);
-    
-//     return res.status(200).json({
-//       success: true,
-//       message: "Successfully connected to Razorpay API",
-//       plans_count: plans.items?.length || 0,
-//       api_status: "Connected"
-//     });
-    
-//   } catch (error) {
-//     console.error("❌ Failed to connect to Razorpay API:", error);
-//     console.error("Connection error type:", typeof error);
-//     console.error("Connection error constructor:", error.constructor?.name);
-    
-//     let errorMessage = "Failed to connect to Razorpay API";
-//     let errorDetails = {};
-    
-//     if (error) {
-//       if (error.error) {
-//         errorDetails.razorpay_error = error.error;
-//         errorMessage = error.error.description || error.error.message || errorMessage;
-//       } else if (error.message) {
-//         errorMessage = error.message;
-//       }
-      
-//       if (error.statusCode) {
-//         errorDetails.status_code = error.statusCode;
-//       }
-//     }
-    
-//     return res.status(500).json({
-//       success: false,
-//       message: errorMessage,
-//       error_details: errorDetails,
-//       api_status: "Disconnected"
-//     });
-//   }
-// }
-
-// module.exports = {
-//   startSubscription,
-//   verifySubscription,
-//   testPlans,
-//   testRazorpayConnection,
-// };
-
-
-// backend/controllers/paymentController.js
-
-// const Razorpay = require("razorpay");
-// const crypto = require("crypto");
-// const db = require("../config/db");
+// const TokenUsageService = require("../services/tokenUsageService"); // Import TokenUsageService
 
 // const razorpay = new Razorpay({
 //   key_id: process.env.RAZORPAY_KEY_ID,
@@ -2478,14 +2467,13 @@ const handleSubscriptionCompleted = async (subscription) => {
 //         plan_id: plan.razorpay_plan_id,
 //         customer_notify: 1,
 //         quantity: 1,
+//         customer_id: String(customerId)
 //       };
+
 //       if (plan.interval !== 'lifetime') subscriptionData.total_count = 12;
 //       else subscriptionData.total_count = 1;
 
-//       // Add customer_id if available, ensuring it's a string
-//       if (customerId) {
-//         subscriptionData.customer_id = String(customerId);
-//       }
+//       console.log("📦 Subscription Payload:", subscriptionData);
 
 //       subscription = await razorpay.subscriptions.create(subscriptionData);
 
@@ -2505,6 +2493,8 @@ const handleSubscriptionCompleted = async (subscription) => {
 //         safeError.razorpay_error = err.error;
 //       }
 
+//       console.error("❌ Razorpay Subscription Error:", JSON.stringify(safeError, getCircularReplacer(), 2));
+
 //       return res.status(500).json({
 //         success: false,
 //         message: "Failed to create subscription",
@@ -2514,10 +2504,10 @@ const handleSubscriptionCompleted = async (subscription) => {
 //     }
 
 //     await db.query(
-//       `INSERT INTO user_subscriptions 
+//       `INSERT INTO user_subscriptions
 //         (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
 //        VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-//        ON CONFLICT (user_id) DO UPDATE SET 
+//        ON CONFLICT (user_id) DO UPDATE SET
 //          plan_id = EXCLUDED.plan_id,
 //          razorpay_subscription_id = EXCLUDED.razorpay_subscription_id,
 //          status = EXCLUDED.status,
@@ -2525,6 +2515,11 @@ const handleSubscriptionCompleted = async (subscription) => {
 //          updated_at = CURRENT_TIMESTAMP`,
 //       [userId, plan.id, subscription.id, subscription.status, plan.token_limit || 0]
 //     );
+
+//     // Allocate initial tokens using TokenUsageService
+//     if (plan.token_limit !== undefined && plan.token_limit !== null) {
+//       await TokenUsageService.resetUserUsage(userId, plan.token_limit, 'Initial Subscription Token Allocation');
+//     }
 
 //     return res.status(200).json({
 //       success: true,
@@ -2548,21 +2543,90 @@ const handleSubscriptionCompleted = async (subscription) => {
 //   try {
 //     const userId = req.user?.id;
 //     const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body;
+//     console.log(`DEBUG: verifySubscription - User ${userId} - Payment ID: ${razorpay_payment_id}, Subscription ID: ${razorpay_subscription_id}`);
 //     if (!userId || !razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
 //       return res.status(400).json({ success: false, message: "Missing verification data" });
 //     }
 //     const expectedSignature = crypto.createHmac('sha256', process.env.RAZORPAY_SECRET).update(`${razorpay_payment_id}|${razorpay_subscription_id}`).digest('hex');
 //     if (expectedSignature !== razorpay_signature) {
+//       console.log(`DEBUG: verifySubscription - Invalid signature for User ${userId}. Expected: ${expectedSignature}, Received: ${razorpay_signature}`);
 //       return res.status(400).json({ success: false, message: "Invalid payment signature" });
 //     }
+
+//     // Fetch payment details from Razorpay
+//     const paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
+
 //     const updateResult = await db.query(
 //       `UPDATE user_subscriptions SET status = 'active', razorpay_payment_id = $1, activated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2 AND razorpay_subscription_id = $3 RETURNING *`,
 //       [razorpay_payment_id, userId, razorpay_subscription_id]
 //     );
 //     if (updateResult.rows.length === 0) return res.status(404).json({ success: false, message: "Subscription not found" });
-//     return res.status(200).json({ success: true, message: "Subscription verified successfully", subscription: updateResult.rows[0] });
+
+//     // Fetch the plan details to get the token_limit
+//     const userSubscription = updateResult.rows[0];
+//     const planQuery = await db.query("SELECT token_limit FROM subscription_plans WHERE id = $1", [userSubscription.plan_id]);
+//     const tokenLimit = planQuery.rows.length > 0 ? planQuery.rows[0].token_limit : 0;
+
+//     // Reset user tokens upon successful verification and activation
+//     await TokenUsageService.resetUserUsage(userId, tokenLimit, 'Subscription Verified and Activated');
+
+//     return res.status(200).json({ success: true, message: "Subscription verified successfully", subscription: userSubscription });
 //   } catch (err) {
 //     return res.status(500).json({ success: false, message: "Subscription verification failed", error: err.message });
+//   }
+// };
+// ;
+// //   }
+// // };
+// const getUserPaymentHistory = async (req, res) => {
+//   try {
+//     const userId = req.user?.id;
+//     if (!userId) {
+//       return res.status(401).json({ success: false, message: "Unauthorized user" });
+//     }
+
+//     const paymentHistory = await db.query(
+//       `SELECT
+//         p.id AS payment_id,
+//         p.razorpay_payment_id,
+//         p.amount,
+//         p.currency,
+//         p.status AS payment_status,
+//         p.payment_method,
+//         p.created_at AS payment_date,
+        
+//         us.id AS user_subscription_id,
+//         us.status AS subscription_status,
+//         us.start_date,
+//         us.end_date,
+
+//         sp.id AS plan_id,
+//         sp.name AS plan_name,
+//         sp.description AS plan_description,
+//         sp.price AS plan_price,
+//         sp.interval AS plan_interval,
+//         sp.token_limit AS plan_token_limit
+//       FROM payments p
+//       LEFT JOIN user_subscriptions us 
+//         ON p.subscription_id = us.id
+//       LEFT JOIN subscription_plans sp 
+//         ON us.plan_id = sp.id
+//       WHERE p.user_id = $1
+//       ORDER BY p.created_at DESC, p.id DESC`,
+//       [userId]
+//     );
+
+//     return res.status(200).json({
+//       success: true,
+//       data: paymentHistory.rows,
+//     });
+//   } catch (err) {
+//     console.error("❌ Error fetching user payment history:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Failed to fetch payment history",
+//       error: err.message,
+//     });
 //   }
 // };
 
@@ -2594,7 +2658,54 @@ const handleSubscriptionCompleted = async (subscription) => {
 //       success: false,
 //       message: "Failed to connect to Razorpay API",
 //       error: error.error?.description || error.message,
-//       raw_error: JSON.stringify(error)
+//       raw_e
+// // const getUserPaymentHistory = async (req, res) => {
+// //   try {
+// //     const userId = req.user?.id;
+// //     if (!userId) {
+// //       return res.status(401).json({ success: false, message: "Unauthorized user" });
+// //     }
+
+// //     const paymentHistory = await db.query(
+// //       `SELECT
+// //         p.id AS payment_id,
+// //         p.razorpay_payment_id,
+// //         p.amount,
+// //         p.currency,
+// //         p.status AS payment_status,
+// //         p.payment_method,
+// //         p.created_at AS payment_date,
+// //         us.id AS user_subscription_id,
+// //         us.status AS subscription_status,
+// //         sp.name AS plan_name,
+// //         sp.description AS plan_description,
+// //         sp.price AS plan_price,
+// //         sp.interval AS plan_interval,
+// //         sp.token_limit AS plan_token_limit
+// //       FROM
+// //         payments p
+// //       JOIN
+// //         user_subscriptions us ON p.subscription_id = us.id
+// //       JOIN
+// //         subscription_plans sp ON us.plan_id = sp.id
+// //       WHERE
+// //         p.user_id = $1
+// //       ORDER BY
+// //         p.created_at DESC`,
+// //       [userId]
+// //     );
+
+// //     return res.status(200).json({
+// //       success: true,
+// //       data: paymentHistory.rows,
+// //     });
+// //   } catch (err) {
+// //     console.error("❌ Error fetching user payment history:", err);
+// //     return res.status(500).json({
+// //       success: false,
+// //       message: "Failed to fetch payment history",
+// //       error: err.message,
+// //     })rror: JSON.stringify(error)
 //     });
 //   }
 // };
@@ -2604,12 +2715,15 @@ const handleSubscriptionCompleted = async (subscription) => {
 //   verifySubscription,
 //   testPlans,
 //   testRazorpayConnection,
+//   handleWebhook,
+//   getUserPaymentHistory,
 // };
+
 
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const db = require("../config/db");
-const TokenUsageService = require("../services/tokenUsageService"); // Import TokenUsageService
+const TokenUsageService = require("../services/tokenUsageService");
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -2631,31 +2745,56 @@ const startSubscription = async (req, res) => {
   try {
     const userId = req.user?.id;
     const { plan_id } = req.body;
+    
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized user" });
     if (!plan_id) return res.status(400).json({ success: false, message: "Missing plan_id" });
 
+    // Fetch plan from database
     const planQuery = await db.query("SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true", [plan_id]);
     if (planQuery.rows.length === 0) return res.status(404).json({ success: false, message: "Plan not found or inactive" });
+    
     const plan = planQuery.rows[0];
-    if (!plan.razorpay_plan_id) return res.status(500).json({ success: false, message: `Plan '${plan.name}' is not properly configured with Razorpay` });
+    if (!plan.razorpay_plan_id) {
+      return res.status(500).json({ 
+        success: false, 
+        message: `Plan '${plan.name}' is not properly configured with Razorpay` 
+      });
+    }
 
+    // Fetch user details
     const userQuery = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
     if (userQuery.rows.length === 0) return res.status(404).json({ success: false, message: "User not found" });
+    
     const user = userQuery.rows[0];
 
+    // Create or get Razorpay customer
     let customerId = user.razorpay_customer_id;
     if (!customerId) {
       try {
-        const customerData = { name: user.name || user.username || `User ${user.id}`, email: user.email, fail_existing: 0 };
-        if (user.phone || user.contact) customerData.contact = user.phone || user.contact;
+        const customerData = { 
+          name: user.name || user.username || `User ${user.id}`, 
+          email: user.email, 
+          fail_existing: 0 
+        };
+        
+        if (user.phone || user.contact) {
+          customerData.contact = user.phone || user.contact;
+        }
+        
         const customer = await razorpay.customers.create(customerData);
         customerId = customer.id;
+        
         await db.query("UPDATE users SET razorpay_customer_id = $1 WHERE id = $2", [customerId, userId]);
       } catch (customerError) {
-        return res.status(500).json({ success: false, message: "Failed to create customer profile", error: customerError?.message || "Unknown customer creation error" });
+        return res.status(500).json({ 
+          success: false, 
+          message: "Failed to create customer profile", 
+          error: customerError?.message || "Unknown customer creation error" 
+        });
       }
     }
 
+    // Create Razorpay subscription
     let subscription;
     try {
       const subscriptionData = {
@@ -2665,30 +2804,27 @@ const startSubscription = async (req, res) => {
         customer_id: String(customerId)
       };
 
-      if (plan.interval !== 'lifetime') subscriptionData.total_count = 12;
-      else subscriptionData.total_count = 1;
+      if (plan.interval !== 'lifetime') {
+        subscriptionData.total_count = 12;
+      } else {
+        subscriptionData.total_count = 1;
+      }
 
-      console.log("📦 Subscription Payload:", subscriptionData);
-
+      console.log("Creating Razorpay subscription with data:", subscriptionData);
       subscription = await razorpay.subscriptions.create(subscriptionData);
 
-      if (!subscription || typeof subscription !== 'object' || !subscription.id) {
-        throw new Error("Invalid or null subscription response from Razorpay.");
+      if (!subscription || !subscription.id) {
+        throw new Error("Invalid subscription response from Razorpay");
       }
 
     } catch (err) {
       const safeError = {
         name: err?.name || "UnknownError",
         message: err?.message || "Subscription creation failed",
-        stack: err?.stack || "No stack",
-        raw: err
+        razorpay_error: err?.error || null
       };
 
-      if (err?.error && typeof err.error === 'object') {
-        safeError.razorpay_error = err.error;
-      }
-
-      console.error("❌ Razorpay Subscription Error:", JSON.stringify(safeError, getCircularReplacer(), 2));
+      console.error("Razorpay Subscription Error:", JSON.stringify(safeError, getCircularReplacer(), 2));
 
       return res.status(500).json({
         success: false,
@@ -2698,6 +2834,7 @@ const startSubscription = async (req, res) => {
       });
     }
 
+    // Save subscription to database
     await db.query(
       `INSERT INTO user_subscriptions
         (user_id, plan_id, razorpay_subscription_id, status, current_token_balance, last_reset_date, created_at, updated_at)
@@ -2711,7 +2848,7 @@ const startSubscription = async (req, res) => {
       [userId, plan.id, subscription.id, subscription.status, plan.token_limit || 0]
     );
 
-    // Allocate initial tokens using TokenUsageService
+    // Allocate initial tokens
     if (plan.token_limit !== undefined && plan.token_limit !== null) {
       await TokenUsageService.resetUserUsage(userId, plan.token_limit, 'Initial Subscription Token Allocation');
     }
@@ -2725,6 +2862,7 @@ const startSubscription = async (req, res) => {
     });
 
   } catch (err) {
+    console.error("Unexpected error in startSubscription:", err);
     return res.status(500).json({
       success: false,
       message: "Subscription initiation failed due to an unexpected error.",
@@ -2736,90 +2874,319 @@ const startSubscription = async (req, res) => {
 
 const verifySubscription = async (req, res) => {
   try {
+    await db.query('BEGIN');
+    
     const userId = req.user?.id;
-    const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body;
-    console.log(`DEBUG: verifySubscription - User ${userId} - Payment ID: ${razorpay_payment_id}, Subscription ID: ${razorpay_subscription_id}`);
+    const { 
+      razorpay_payment_id, 
+      razorpay_subscription_id, 
+      razorpay_signature,
+      razorpay_order_id // Add this parameter
+    } = req.body;
+    
+    console.log(`Verifying subscription - User: ${userId}, Payment: ${razorpay_payment_id}, Subscription: ${razorpay_subscription_id}`);
+    
     if (!userId || !razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
       return res.status(400).json({ success: false, message: "Missing verification data" });
     }
-    const expectedSignature = crypto.createHmac('sha256', process.env.RAZORPAY_SECRET).update(`${razorpay_payment_id}|${razorpay_subscription_id}`).digest('hex');
+
+    // Verify signature
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_SECRET)
+      .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+      .digest('hex');
+    
     if (expectedSignature !== razorpay_signature) {
-      console.log(`DEBUG: verifySubscription - Invalid signature for User ${userId}. Expected: ${expectedSignature}, Received: ${razorpay_signature}`);
+      console.log(`Invalid signature - Expected: ${expectedSignature}, Received: ${razorpay_signature}`);
       return res.status(400).json({ success: false, message: "Invalid payment signature" });
     }
 
-    // Fetch payment details from Razorpay
-    const paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
+    // Fetch payment details from Razorpay to get complete payment info
+    let paymentDetails;
+    try {
+      paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
+      console.log("Fetched payment details from Razorpay:", {
+        id: paymentDetails.id,
+        amount: paymentDetails.amount,
+        currency: paymentDetails.currency,
+        status: paymentDetails.status,
+        method: paymentDetails.method,
+        order_id: paymentDetails.order_id
+      });
+    } catch (fetchError) {
+      console.error("Failed to fetch payment details:", fetchError);
+      // Continue with verification even if fetch fails
+      paymentDetails = {
+        id: razorpay_payment_id,
+        amount: 0,
+        currency: 'INR',
+        status: 'captured',
+        method: 'unknown',
+        order_id: razorpay_order_id || null
+      };
+    }
 
+    // Update subscription status
     const updateResult = await db.query(
-      `UPDATE user_subscriptions SET status = 'active', razorpay_payment_id = $1, activated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2 AND razorpay_subscription_id = $3 RETURNING *`,
+      `UPDATE user_subscriptions 
+       SET status = 'active', 
+           razorpay_payment_id = $1, 
+           activated_at = CURRENT_TIMESTAMP, 
+           updated_at = CURRENT_TIMESTAMP,
+           last_reset_date = CURRENT_DATE
+       WHERE user_id = $2 AND razorpay_subscription_id = $3 
+       RETURNING *`,
       [razorpay_payment_id, userId, razorpay_subscription_id]
     );
-    if (updateResult.rows.length === 0) return res.status(404).json({ success: false, message: "Subscription not found" });
+    
+    if (updateResult.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: "Subscription not found" });
+    }
 
-    // Fetch the plan details to get the token_limit
     const userSubscription = updateResult.rows[0];
-    const planQuery = await db.query("SELECT token_limit FROM subscription_plans WHERE id = $1", [userSubscription.plan_id]);
+    
+    // Get plan details for token limit
+    const planQuery = await db.query(
+      "SELECT token_limit FROM subscription_plans WHERE id = $1", 
+      [userSubscription.plan_id]
+    );
+    
     const tokenLimit = planQuery.rows.length > 0 ? planQuery.rows[0].token_limit : 0;
 
-    // Reset user tokens upon successful verification and activation
+    // Insert payment record into payments table
+    await db.query(
+      `INSERT INTO payments (
+        user_id,
+        subscription_id,
+        razorpay_payment_id,
+        razorpay_order_id,
+        razorpay_signature,
+        amount,
+        currency,
+        status,
+        payment_method,
+        created_at,
+        transaction_date
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_DATE)`,
+      [
+        userId,
+        userSubscription.id, // user_subscriptions.id (not plan_id)
+        paymentDetails.id,
+        paymentDetails.order_id || razorpay_order_id,
+        razorpay_signature,
+        paymentDetails.amount ? paymentDetails.amount / 100 : 0, // Convert paise to rupees
+        paymentDetails.currency || 'INR',
+        paymentDetails.status || 'captured',
+        paymentDetails.method || 'unknown'
+      ]
+    );
+
+    // Reset user tokens
     await TokenUsageService.resetUserUsage(userId, tokenLimit, 'Subscription Verified and Activated');
 
-    return res.status(200).json({ success: true, message: "Subscription verified successfully", subscription: userSubscription });
+    await db.query('COMMIT');
+    
+    console.log(`Subscription verified successfully for user ${userId}`);
+    
+    return res.status(200).json({ 
+      success: true, 
+      message: "Subscription verified successfully", 
+      subscription: userSubscription 
+    });
+
   } catch (err) {
-    return res.status(500).json({ success: false, message: "Subscription verification failed", error: err.message });
+    await db.query('ROLLBACK');
+    console.error("Subscription verification failed:", err);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Subscription verification failed", 
+      error: err.message 
+    });
   }
 };
 
-// const getUserPaymentHistory = async (req, res) => {
-//   try {
-//     const userId = req.user?.id;
-//     if (!userId) {
-//       return res.status(401).json({ success: false, message: "Unauthorized user" });
-//     }
+// Webhook handler for Razorpay events
+const handleWebhook = async (req, res) => {
+  try {
+    await db.query('BEGIN');
+    
+    const signature = req.headers['x-razorpay-signature'];
+    const payload = JSON.stringify(req.body);
+    console.log(`Webhook received - Event: ${req.body.event}`);
+    
+    // Verify webhook signature
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
+      .update(payload)
+      .digest('hex');
+    
+    if (signature !== expectedSignature) {
+      console.log("Invalid webhook signature");
+      return res.status(400).json({ message: "Invalid signature" });
+    }
+    
+    const { event, payload: eventPayload } = req.body;
+    console.log(`Processing webhook event: ${event}`);
+    
+    switch (event) {
+      case 'subscription.activated':
+        await handleSubscriptionActivated(eventPayload.subscription.entity);
+        break;
+      case 'subscription.charged':
+        await handleSubscriptionCharged(eventPayload.payment.entity, eventPayload.subscription.entity);
+        break;
+      case 'subscription.cancelled':
+        await handleSubscriptionCancelled(eventPayload.subscription.entity);
+        break;
+      case 'subscription.completed':
+        await handleSubscriptionCompleted(eventPayload.subscription.entity);
+        break;
+      default:
+        console.log(`Unhandled webhook event: ${event}`);
+    }
+    
+    await db.query('COMMIT');
+    return res.status(200).json({ status: 'ok' });
+    
+  } catch (err) {
+    await db.query('ROLLBACK');
+    console.error("Webhook handling failed:", err);
+    return res.status(500).json({ message: "Webhook handling failed" });
+  }
+};
 
-//     const paymentHistory = await db.query(
-//       `SELECT
-//         p.id AS payment_id,
-//         p.razorpay_payment_id,
-//         p.amount,
-//         p.currency,
-//         p.status AS payment_status,
-//         p.payment_method,
-//         p.created_at AS payment_date,
-//         us.id AS user_subscription_id,
-//         us.status AS subscription_status,
-//         sp.name AS plan_name,
-//         sp.description AS plan_description,
-//         sp.price AS plan_price,
-//         sp.interval AS plan_interval,
-//         sp.token_limit AS plan_token_limit
-//       FROM
-//         payments p
-//       JOIN
-//         user_subscriptions us ON p.subscription_id = us.id
-//       JOIN
-//         subscription_plans sp ON us.plan_id = sp.id
-//       WHERE
-//         p.user_id = $1
-//       ORDER BY
-//         p.created_at DESC`,
-//       [userId]
-//     );
+const handleSubscriptionActivated = async (subscription) => {
+  try {
+    console.log(`Activating subscription: ${subscription.id}`);
+    
+    const result = await db.query(
+      `UPDATE user_subscriptions
+       SET status = 'active', activated_at = CURRENT_TIMESTAMP, last_reset_date = CURRENT_DATE
+       WHERE razorpay_subscription_id = $1 RETURNING user_id, plan_id`,
+      [subscription.id]
+    );
+    
+    if (result.rows.length > 0) {
+      const { user_id, plan_id } = result.rows[0];
+      console.log(`Subscription ${subscription.id} activated for user ${user_id}`);
 
-//     return res.status(200).json({
-//       success: true,
-//       data: paymentHistory.rows,
-//     });
-//   } catch (err) {
-//     console.error("❌ Error fetching user payment history:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch payment history",
-//       error: err.message,
-//     });
-//   }
-// };
+      // Reset tokens
+      const planResult = await db.query(
+        `SELECT token_limit FROM subscription_plans WHERE id = $1`,
+        [plan_id]
+      );
+      
+      if (planResult.rows.length > 0) {
+        const tokenLimit = planResult.rows[0].token_limit;
+        await TokenUsageService.resetUserUsage(user_id, tokenLimit, 'Subscription Activated');
+        console.log(`User ${user_id} tokens reset to ${tokenLimit}`);
+      }
+    } else {
+      console.warn(`No subscription found for Razorpay ID: ${subscription.id}`);
+    }
+  } catch (err) {
+    console.error(`Error handling subscription activation for ${subscription.id}:`, err);
+    throw err;
+  }
+};
+
+const handleSubscriptionCharged = async (payment, subscription) => {
+  try {
+    console.log(`Handling charge for subscription: ${subscription.id}, payment: ${payment.id}`);
+    
+    // Update subscription info
+    const updateResult = await db.query(
+      `UPDATE user_subscriptions
+       SET razorpay_payment_id = $1,
+           last_charged_at = CURRENT_TIMESTAMP,
+           last_reset_date = CURRENT_DATE
+       WHERE razorpay_subscription_id = $2 RETURNING id, user_id, plan_id`,
+      [payment.id, subscription.id]
+    );
+
+    if (updateResult.rows.length > 0) {
+      const { id: user_subscription_id, user_id, plan_id } = updateResult.rows[0];
+      console.log(`Subscription ${subscription.id} charged for user ${user_id}`);
+
+      // Reset user tokens
+      const planResult = await db.query(
+        `SELECT token_limit FROM subscription_plans WHERE id = $1`,
+        [plan_id]
+      );
+      
+      if (planResult.rows.length > 0) {
+        const tokenLimit = planResult.rows[0].token_limit;
+        await TokenUsageService.resetUserUsage(user_id, tokenLimit, 'Subscription Charged/Renewed');
+        console.log(`User ${user_id} tokens reset to ${tokenLimit}`);
+      }
+
+      // Insert payment record
+      await db.query(
+        `INSERT INTO payments (
+          user_id,
+          subscription_id,
+          razorpay_payment_id,
+          razorpay_order_id,
+          amount,
+          currency,
+          status,
+          payment_method,
+          created_at,
+          transaction_date
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_DATE)`,
+        [
+          user_id,
+          user_subscription_id,
+          payment.id,
+          payment.order_id,
+          payment.amount / 100, // Convert paise to rupees
+          payment.currency,
+          payment.status,
+          payment.method
+        ]
+      );
+      
+      console.log(`Payment ${payment.id} recorded for user ${user_id}`);
+    } else {
+      console.warn(`No subscription found for Razorpay ID: ${subscription.id}`);
+    }
+  } catch (err) {
+    console.error(`Error handling subscription charge for ${subscription.id}:`, err);
+    throw err;
+  }
+};
+
+const handleSubscriptionCancelled = async (subscription) => {
+  try {
+    await db.query(
+      `UPDATE user_subscriptions
+       SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP
+       WHERE razorpay_subscription_id = $1`,
+      [subscription.id]
+    );
+    console.log(`Subscription ${subscription.id} cancelled`);
+  } catch (err) {
+    console.error(`Error handling subscription cancellation for ${subscription.id}:`, err);
+    throw err;
+  }
+};
+
+const handleSubscriptionCompleted = async (subscription) => {
+  try {
+    await db.query(
+      `UPDATE user_subscriptions
+       SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+       WHERE razorpay_subscription_id = $1`,
+      [subscription.id]
+    );
+    console.log(`Subscription ${subscription.id} completed`);
+  } catch (err) {
+    console.error(`Error handling subscription completion for ${subscription.id}:`, err);
+    throw err;
+  }
+};
+
 const getUserPaymentHistory = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -2831,11 +3198,13 @@ const getUserPaymentHistory = async (req, res) => {
       `SELECT
         p.id AS payment_id,
         p.razorpay_payment_id,
+        p.razorpay_order_id,
         p.amount,
         p.currency,
         p.status AS payment_status,
         p.payment_method,
         p.created_at AS payment_date,
+        p.transaction_date,
         
         us.id AS user_subscription_id,
         us.status AS subscription_status,
@@ -2849,10 +3218,8 @@ const getUserPaymentHistory = async (req, res) => {
         sp.interval AS plan_interval,
         sp.token_limit AS plan_token_limit
       FROM payments p
-      LEFT JOIN user_subscriptions us 
-        ON p.subscription_id = us.id
-      LEFT JOIN subscription_plans sp 
-        ON us.plan_id = sp.id
+      LEFT JOIN user_subscriptions us ON p.subscription_id = us.id
+      LEFT JOIN subscription_plans sp ON us.plan_id = sp.id
       WHERE p.user_id = $1
       ORDER BY p.created_at DESC, p.id DESC`,
       [userId]
@@ -2863,7 +3230,7 @@ const getUserPaymentHistory = async (req, res) => {
       data: paymentHistory.rows,
     });
   } catch (err) {
-    console.error("❌ Error fetching user payment history:", err);
+    console.error("Error fetching user payment history:", err);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch payment history",
@@ -2876,14 +3243,25 @@ const testPlans = async (req, res) => {
   try {
     const dbPlans = await db.query("SELECT id, name, razorpay_plan_id, price, interval, is_active FROM subscription_plans ORDER BY id");
     const rzpPlans = await razorpay.plans.all({ count: 10 });
+    
     return res.json({
       success: true,
       database_plans: dbPlans.rows,
       razorpay_plans: rzpPlans.items?.length || 0,
-      razorpay_plan_details: rzpPlans.items?.map(p => ({ id: p.id, name: p.item?.name, amount: p.item?.amount, currency: p.item?.currency, period: p.period }))
+      razorpay_plan_details: rzpPlans.items?.map(p => ({ 
+        id: p.id, 
+        name: p.item?.name, 
+        amount: p.item?.amount, 
+        currency: p.item?.currency, 
+        period: p.period 
+      }))
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Plan test failed", error: error.message });
+    return res.status(500).json({ 
+      success: false, 
+      message: "Plan test failed", 
+      error: error.message 
+    });
   }
 };
 

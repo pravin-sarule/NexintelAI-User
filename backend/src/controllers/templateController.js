@@ -51,14 +51,13 @@ exports.getTemplates = async (req, res) => {
     // Fetch templates, filtering by access level
     const templatesQuery = `
       SELECT * FROM templates
-      WHERE status = 'active'
-      AND (is_public = TRUE OR user_id = $1 OR (access_level = 'free' AND $2 IN ('free', 'basic', 'premium')) OR (access_level = 'basic' AND $2 IN ('basic', 'premium')) OR (access_level = 'premium' AND $2 = 'premium'));
+      WHERE status = 'active';
     `;
-    const { rows } = await pool.query(templatesQuery, [userId, userTemplateAccess]);
+    const { rows } = await pool.query(templatesQuery);
     res.json(rows);
   } catch (err) {
     console.error('Error fetching templates:', err);
-    res.status(500).json({ message: 'Error fetching templates', error: err.message });
+    res.status(500).json({ message: 'Error fetching templates', error: err.message, stack: err.stack });
   }
 };
 
