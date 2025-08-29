@@ -1,3 +1,1488 @@
+
+
+// import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+// import { 
+//   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify,
+//   List, ListOrdered, Link, Image, Languages, SpellCheck, 
+//   Sparkles, MessageSquare, Loader, Palette, Minus, Plus,
+//   Undo, Redo, Quote, Strikethrough, Table, Divide,
+//   Indent, Outdent, Settings, FileText,
+//   Printer, Download, Upload, Save, Eye, EyeOff
+// } from 'lucide-react';
+
+// const RichTextEditor = ({ 
+//   value = '', 
+//   onChange = () => {}, 
+//   placeholder = "Start typing your document...",
+//   userId = 'guest'
+// }) => {
+//   // Core editor state
+//   const editorRef = useRef(null);
+//   const fileInputRef = useRef(null);
+//   const [content, setContent] = useState(value);
+//   const [selectedText, setSelectedText] = useState('');
+//   const [isLoading, setIsLoading] = useState(false);
+//   const [loadingAction, setLoadingAction] = useState('');
+  
+//   // Formatting state
+//   const [fontSize, setFontSize] = useState(14);
+//   const [fontFamily, setFontFamily] = useState('Times New Roman');
+//   const [textColor, setTextColor] = useState('#000000');
+//   const [backgroundColor, setBackgroundColor] = useState('#ffffff');
+  
+//   // Modal states
+//   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+//   const [linkUrl, setLinkUrl] = useState('');
+//   const [isTableModalOpen, setIsTableModalOpen] = useState(false);
+//   const [tableRows, setTableRows] = useState(3);
+//   const [tableCols, setTableCols] = useState(3);
+  
+//   // History state
+//   const [undoStack, setUndoStack] = useState([]);
+//   const [redoStack, setRedoStack] = useState([]);
+  
+//   // Document state
+//   const [wordCount, setWordCount] = useState(0);
+//   const [charCount, setCharCount] = useState(0);
+//   const [isPreviewMode, setIsPreviewMode] = useState(false);
+//   const [zoomLevel, setZoomLevel] = useState(100);
+//   const [isModified, setIsModified] = useState(false);
+
+//   // Update word and character counts
+//   const updateCounts = useCallback((htmlContent) => {
+//     const tempDiv = document.createElement('div');
+//     tempDiv.innerHTML = htmlContent;
+//     const text = tempDiv.textContent || tempDiv.innerText || '';
+    
+//     const words = text.trim().split(/\s+/).filter(word => word.length > 0);
+//     setWordCount(words.length);
+//     setCharCount(text.length);
+//   }, []);
+
+//   // Save to history for undo/redo
+//   const saveToHistory = useCallback((contentToSave = content) => {
+//     setUndoStack(prev => {
+//       const newStack = [...prev.slice(-19), contentToSave];
+//       return newStack;
+//     });
+//     setRedoStack([]);
+//     setIsModified(true);
+//   }, [content]);
+
+//   // Handle content changes
+//   const handleContentChange = useCallback((newContent) => {
+//     // Only update if content actually changed
+//     if (newContent !== content) {
+//       setContent(newContent);
+//       updateCounts(newContent);
+//       onChange(newContent);
+//       setIsModified(true);
+//     }
+//   }, [content, onChange, updateCounts]);
+
+//   // Selection management
+//   const savedSelectionRef = useRef(null);
+  
+//   const saveSelection = useCallback(() => {
+//     if (window.getSelection && editorRef.current) {
+//       const selection = window.getSelection();
+//       if (selection.rangeCount > 0) {
+//         const range = selection.getRangeAt(0);
+//         if (editorRef.current.contains(range.commonAncestorContainer)) {
+//           savedSelectionRef.current = {
+//             startContainer: range.startContainer,
+//             startOffset: range.startOffset,
+//             endContainer: range.endContainer,
+//             endOffset: range.endOffset,
+//             text: selection.toString()
+//           };
+//           return savedSelectionRef.current;
+//         }
+//       }
+//     }
+//     return null;
+//   }, []);
+
+//   const restoreSelection = useCallback(() => {
+//     if (savedSelectionRef.current && window.getSelection && editorRef.current) {
+//       try {
+//         const selection = window.getSelection();
+//         const range = document.createRange();
+        
+//         if (editorRef.current.contains(savedSelectionRef.current.startContainer) &&
+//             editorRef.current.contains(savedSelectionRef.current.endContainer)) {
+//           range.setStart(savedSelectionRef.current.startContainer, savedSelectionRef.current.startOffset);
+//           range.setEnd(savedSelectionRef.current.endContainer, savedSelectionRef.current.endOffset);
+//           selection.removeAllRanges();
+//           selection.addRange(range);
+//           return true;
+//         }
+//       } catch (e) {
+//         console.warn("Could not restore selection:", e);
+//       }
+//     }
+//     return false;
+//   }, []);
+
+//   // Format text function
+//   const formatText = useCallback((command, value = null) => {
+//     if (!editorRef.current) return;
+    
+//     const selection = window.getSelection();
+//     if (!selection || selection.rangeCount === 0) return;
+    
+//     const range = selection.getRangeAt(0);
+//     if (!editorRef.current.contains(range.commonAncestorContainer)) return;
+    
+//     // Save the current selection details
+//     const selectionInfo = {
+//       startContainer: range.startContainer,
+//       startOffset: range.startOffset,
+//       endContainer: range.endContainer,
+//       endOffset: range.endOffset,
+//       text: selection.toString()
+//     };
+    
+//     saveToHistory();
+    
+//     try {
+//       // Special handling for font formatting
+//       if (['fontSize', 'fontName', 'foreColor', 'hiliteColor'].includes(command)) {
+//         if (!range.collapsed) {
+//           const span = document.createElement('span');
+          
+//           switch (command) {
+//             case 'fontSize':
+//               span.style.fontSize = value + 'px';
+//               break;
+//             case 'fontName':
+//               span.style.fontFamily = value;
+//               break;
+//             case 'foreColor':
+//               span.style.color = value;
+//               break;
+//             case 'hiliteColor':
+//               span.style.backgroundColor = value;
+//               break;
+//           }
+          
+//           const selectedContent = range.extractContents();
+//           span.appendChild(selectedContent);
+//           range.insertNode(span);
+          
+//           // Restore selection on the formatted content
+//           const newRange = document.createRange();
+//           newRange.selectNodeContents(span);
+//           selection.removeAllRanges();
+//           selection.addRange(newRange);
+//         }
+//       } else {
+//         // Standard formatting commands
+//         document.execCommand(command, false, value);
+        
+//         // Try to restore selection after standard formatting
+//         setTimeout(() => {
+//           try {
+//             if (selectionInfo.text && editorRef.current.contains(selectionInfo.startContainer)) {
+//               const newSelection = window.getSelection();
+//               const newRange = document.createRange();
+//               newRange.setStart(selectionInfo.startContainer, selectionInfo.startOffset);
+//               newRange.setEnd(selectionInfo.endContainer, selectionInfo.endOffset);
+//               newSelection.removeAllRanges();
+//               newSelection.addRange(newRange);
+//             }
+//           } catch (e) {
+//             // If we can't restore exact selection, try to find the text
+//             if (selectionInfo.text) {
+//               const walker = document.createTreeWalker(
+//                 editorRef.current,
+//                 NodeFilter.SHOW_TEXT,
+//                 null,
+//                 false
+//               );
+//               let node;
+//               while (node = walker.nextNode()) {
+//                 const index = node.textContent.indexOf(selectionInfo.text);
+//                 if (index !== -1) {
+//                   const newSelection = window.getSelection();
+//                   const newRange = document.createRange();
+//                   newRange.setStart(node, index);
+//                   newRange.setEnd(node, index + selectionInfo.text.length);
+//                   newSelection.removeAllRanges();
+//                   newSelection.addRange(newRange);
+//                   break;
+//                 }
+//               }
+//             }
+//           }
+//         }, 10);
+//       }
+      
+//       // Update content immediately after formatting (no delays)
+//       handleContentChange(editorRef.current.innerHTML);
+      
+//     } catch (error) {
+//       console.warn('Formatting command failed:', error);
+//     }
+//   }, [saveToHistory, handleContentChange]);
+
+//   // Handle selection changes
+//   const handleSelectionChange = useCallback(() => {
+//     // Use requestAnimationFrame to avoid interfering with active selection
+//     requestAnimationFrame(() => {
+//       if (editorRef.current) {
+//         const selection = window.getSelection();
+//         if (selection && selection.anchorNode && editorRef.current.contains(selection.anchorNode)) {
+//           const selectedTextContent = selection.toString();
+//           setSelectedText(selectedTextContent);
+          
+//           // Only save selection if it's not empty and stable
+//           if (selectedTextContent && !selection.isCollapsed) {
+//             savedSelectionRef.current = {
+//               startContainer: selection.getRangeAt(0).startContainer,
+//               startOffset: selection.getRangeAt(0).startOffset,
+//               endContainer: selection.getRangeAt(0).endContainer,
+//               endOffset: selection.getRangeAt(0).endOffset,
+//               text: selectedTextContent
+//             };
+//           }
+//         }
+//       }
+//     });
+//   }, []);
+
+//   // File operations
+//   const handleSave = useCallback(() => {
+//     setIsModified(false);
+//     alert('Document saved successfully!');
+//   }, []);
+
+//   const handleOpenFile = useCallback(() => {
+//     fileInputRef.current?.click();
+//   }, []);
+
+//   const handleFileChange = useCallback((e) => {
+//     const file = e.target.files[0];
+//     if (!file) return;
+    
+//     const reader = new FileReader();
+//     reader.onload = (e) => {
+//       let htmlContent = e.target.result;
+      
+//       if (file.type === 'text/html') {
+//         // Clean HTML content
+//         const parser = new DOMParser();
+//         const doc = parser.parseFromString(htmlContent, 'text/html');
+//         htmlContent = doc.body.innerHTML || htmlContent;
+//       } else {
+//         // Plain text - convert to HTML
+//         htmlContent = htmlContent.replace(/\n/g, '<br>').replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;');
+//       }
+      
+//       saveToHistory(content);
+//       handleContentChange(htmlContent);
+      
+//       // Update editor content
+//       if (editorRef.current) {
+//         editorRef.current.innerHTML = htmlContent;
+//       }
+//     };
+//     reader.readAsText(file);
+    
+//     // Reset file input
+//     e.target.value = '';
+//   }, [content, saveToHistory, handleContentChange]);
+
+//   const handleDownloadHTML = useCallback(() => {
+//     const cleanContent = content || '<p>Empty document</p>';
+//     const htmlContent = `<!DOCTYPE html>
+// <html lang="en">
+// <head>
+//     <meta charset="UTF-8">
+//     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+//     <title>Document</title>
+//     <style>
+//         body { 
+//             font-family: ${fontFamily}; 
+//             font-size: ${fontSize}px; 
+//             line-height: 1.6; 
+//             max-width: 800px; 
+//             margin: 0 auto; 
+//             padding: 40px 20px; 
+//             color: #333;
+//         }
+//         table {
+//             border-collapse: collapse;
+//             width: 100%;
+//             margin: 1em 0;
+//         }
+//         table td, table th {
+//             border: 1px solid #ddd;
+//             padding: 8px;
+//             text-align: left;
+//         }
+//         table th {
+//             background-color: #f2f2f2;
+//             font-weight: bold;
+//         }
+//         blockquote {
+//             margin: 1em 0;
+//             padding-left: 1em;
+//             border-left: 4px solid #ddd;
+//             color: #666;
+//             font-style: italic;
+//         }
+//         pre {
+//             font-family: 'Courier New', monospace;
+//             background-color: #f5f5f5;
+//             padding: 1em;
+//             border-radius: 4px;
+//             overflow-x: auto;
+//             white-space: pre-wrap;
+//         }
+//         img {
+//             max-width: 100%;
+//             height: auto;
+//             display: block;
+//             margin: 10px auto;
+//         }
+//         @media print {
+//             body { margin: 0; padding: 20px; }
+//         }
+//     </style>
+// </head>
+// <body>
+//     ${cleanContent}
+// </body>
+// </html>`;
+
+//     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+//     const url = URL.createObjectURL(blob);
+//     const a = document.createElement('a');
+//     a.href = url;
+//     a.download = 'document.html';
+//     document.body.appendChild(a);
+//     a.click();
+//     document.body.removeChild(a);
+//     URL.revokeObjectURL(url);
+//   }, [content, fontFamily, fontSize]);
+
+//   // Alternative PDF export using print functionality
+//   const handleDownloadPDF = useCallback(() => {
+//     if (!content.trim()) {
+//       alert('No content to export');
+//       return;
+//     }
+    
+//     setIsLoading(true);
+//     setLoadingAction('Preparing PDF...');
+    
+//     try {
+//       const cleanContent = content || '<p>Empty document</p>';
+//       const printWindow = window.open('', '_blank');
+//       const htmlContent = `<!DOCTYPE html>
+// <html>
+// <head>
+//     <title>Document PDF</title>
+//     <style>
+//         @page {
+//             margin: 1in;
+//             size: A4;
+//         }
+//         body { 
+//             font-family: ${fontFamily}; 
+//             font-size: ${fontSize}px; 
+//             line-height: 1.6; 
+//             margin: 0;
+//             padding: 0;
+//             color: #333;
+//         }
+//         table {
+//             border-collapse: collapse;
+//             width: 100%;
+//             margin: 1em 0;
+//             break-inside: avoid;
+//         }
+//         table td, table th {
+//             border: 1px solid #ddd;
+//             padding: 8px;
+//             text-align: left;
+//         }
+//         table th {
+//             background-color: #f2f2f2;
+//             font-weight: bold;
+//         }
+//         blockquote {
+//             margin: 1em 0;
+//             padding-left: 1em;
+//             border-left: 4px solid #ddd;
+//             color: #666;
+//             font-style: italic;
+//         }
+//         pre {
+//             font-family: 'Courier New', monospace;
+//             background-color: #f5f5f5;
+//             padding: 1em;
+//             border-radius: 4px;
+//             overflow-x: auto;
+//             white-space: pre-wrap;
+//         }
+//         img {
+//             max-width: 100%;
+//             height: auto;
+//             display: block;
+//             margin: 10px auto;
+//         }
+//         h1, h2, h3, h4, h5, h6 {
+//             break-after: avoid;
+//         }
+//         p, li {
+//             orphans: 2;
+//             widows: 2;
+//         }
+//         @media print {
+//             body { margin: 0; }
+//         }
+//     </style>
+// </head>
+// <body>
+//     ${cleanContent}
+//     <script>
+//         window.onload = function() {
+//             setTimeout(function() {
+//                 window.print();
+//             }, 500);
+//         }
+        
+//         window.onafterprint = function() {
+//             setTimeout(function() {
+//                 window.close();
+//             }, 1000);
+//         }
+//     </script>
+// </body>
+// </html>`;
+      
+//       printWindow.document.write(htmlContent);
+//       printWindow.document.close();
+      
+//       setTimeout(() => {
+//         setIsLoading(false);
+//         setLoadingAction('');
+//         alert('PDF print dialog opened. Use your browser\'s print function to save as PDF.');
+//       }, 1000);
+      
+//     } catch (error) {
+//       console.error('Error preparing PDF:', error);
+//       alert('Failed to prepare PDF. Please try again.');
+//       setIsLoading(false);
+//       setLoadingAction('');
+//     }
+//   }, [content, fontFamily, fontSize]);
+
+//   const handlePrint = useCallback(() => {
+//     if (!content.trim()) {
+//       alert('No content to print');
+//       return;
+//     }
+    
+//     const printWindow = window.open('', '_blank');
+//     const htmlContent = `<!DOCTYPE html>
+// <html>
+// <head>
+//     <title>Print Document</title>
+//     <style>
+//         @page {
+//             margin: 1in;
+//         }
+//         body { 
+//             font-family: ${fontFamily}; 
+//             font-size: ${fontSize}px; 
+//             line-height: 1.6; 
+//             margin: 0;
+//             padding: 0;
+//             color: #333;
+//         }
+//         table {
+//             border-collapse: collapse;
+//             width: 100%;
+//             margin: 1em 0;
+//         }
+//         table td, table th {
+//             border: 1px solid #ddd;
+//             padding: 8px;
+//             text-align: left;
+//         }
+//         table th {
+//             background-color: #f2f2f2;
+//             font-weight: bold;
+//         }
+//         blockquote {
+//             margin: 1em 0;
+//             padding-left: 1em;
+//             border-left: 4px solid #ddd;
+//             color: #666;
+//             font-style: italic;
+//         }
+//         pre {
+//             font-family: 'Courier New', monospace;
+//             background-color: #f5f5f5;
+//             padding: 1em;
+//             border-radius: 4px;
+//             white-space: pre-wrap;
+//         }
+//         img {
+//             max-width: 100%;
+//             height: auto;
+//         }
+//         @media print {
+//             body { margin: 0; }
+//         }
+//     </style>
+// </head>
+// <body>
+//     ${content}
+//     <script>
+//         window.onload = function() {
+//             window.print();
+//             setTimeout(() => window.close(), 1000);
+//         }
+//     </script>
+// </body>
+// </html>`;
+    
+//     printWindow.document.write(htmlContent);
+//     printWindow.document.close();
+//   }, [content, fontFamily, fontSize]);
+
+//   // Keyboard shortcuts
+//   const handleKeyDown = useCallback((e) => {
+//     if (e.ctrlKey || e.metaKey) {
+//       switch (e.key.toLowerCase()) {
+//         case 'b':
+//           e.preventDefault();
+//           formatText('bold');
+//           break;
+//         case 'i':
+//           e.preventDefault();
+//           formatText('italic');
+//           break;
+//         case 'u':
+//           e.preventDefault();
+//           formatText('underline');
+//           break;
+//         case 'z':
+//           e.preventDefault();
+//           if (e.shiftKey) {
+//             handleRedo();
+//           } else {
+//             handleUndo();
+//           }
+//           break;
+//         case 'y':
+//           e.preventDefault();
+//           handleRedo();
+//           break;
+//         case 's':
+//           e.preventDefault();
+//           handleSave();
+//           break;
+//       }
+//     }
+    
+//     if (e.key === 'Enter' && !e.shiftKey) {
+//       setTimeout(() => saveToHistory(), 100);
+//     }
+//   }, [formatText, handleSave, saveToHistory]);
+
+//   // Undo/Redo functions
+//   const handleUndo = useCallback(() => {
+//     if (undoStack.length > 0) {
+//       const previousContent = undoStack[undoStack.length - 1];
+      
+//       setRedoStack(prev => [...prev, content]);
+//       setUndoStack(prev => prev.slice(0, -1));
+      
+//       handleContentChange(previousContent);
+      
+//       if (editorRef.current) {
+//         editorRef.current.innerHTML = previousContent;
+//         editorRef.current.focus();
+//       }
+//     }
+//   }, [undoStack, content, handleContentChange]);
+
+//   const handleRedo = useCallback(() => {
+//     if (redoStack.length > 0) {
+//       const nextContent = redoStack[redoStack.length - 1];
+      
+//       setUndoStack(prev => [...prev, content]);
+//       setRedoStack(prev => prev.slice(0, -1));
+      
+//       handleContentChange(nextContent);
+      
+//       if (editorRef.current) {
+//         editorRef.current.innerHTML = nextContent;
+//         editorRef.current.focus();
+//       }
+//     }
+//   }, [redoStack, content, handleContentChange]);
+
+//   // Paste handler
+//   const handlePaste = useCallback((e) => {
+//     e.preventDefault();
+//     saveToHistory();
+    
+//     const clipboardData = e.clipboardData || window.clipboardData;
+//     const htmlData = clipboardData.getData('text/html');
+//     const textData = clipboardData.getData('text/plain');
+    
+//     const pasteContent = htmlData || textData.replace(/\n/g, '<br>');
+//     const cleanContent = pasteContent
+//       .replace(/<script[^>]*>.*?<\/script>/gi, '')
+//       .replace(/on\w+="[^"]*"/gi, '')
+//       .replace(/javascript:/gi, '');
+    
+//     document.execCommand('insertHTML', false, cleanContent);
+    
+//     setTimeout(() => {
+//       if (editorRef.current) {
+//         handleContentChange(editorRef.current.innerHTML);
+//       }
+//     }, 10);
+//   }, [saveToHistory, handleContentChange]);
+
+//   // Link insertion
+//   const insertLink = useCallback(() => {
+//     if (linkUrl && editorRef.current) {
+//       saveToHistory();
+      
+//       if (selectedText) {
+//         const linkHtml = `<a href="${linkUrl}" target="_blank" style="color: #0066cc; text-decoration: underline;">${selectedText}</a>`;
+//         document.execCommand('insertHTML', false, linkHtml);
+//       } else {
+//         document.execCommand('createLink', false, linkUrl);
+//       }
+      
+//       setIsLinkModalOpen(false);
+//       setLinkUrl('');
+      
+//       setTimeout(() => {
+//         if (editorRef.current) {
+//           handleContentChange(editorRef.current.innerHTML);
+//         }
+//       }, 10);
+//     }
+//   }, [linkUrl, selectedText, saveToHistory, handleContentChange]);
+
+//   // Image insertion
+//   const insertImage = useCallback(() => {
+//     const url = prompt('Enter image URL:');
+//     if (url && editorRef.current) {
+//       saveToHistory();
+//       const imgHtml = `<img src="${url}" style="max-width: 100%; height: auto; margin: 10px 0; display: block;" alt="Inserted image" />`;
+//       document.execCommand('insertHTML', false, imgHtml);
+      
+//       setTimeout(() => {
+//         if (editorRef.current) {
+//           handleContentChange(editorRef.current.innerHTML);
+//         }
+//       }, 10);
+//     }
+//   }, [saveToHistory, handleContentChange]);
+
+//   // Table insertion
+//   const insertTable = useCallback(() => {
+//     if (!editorRef.current) return;
+    
+//     saveToHistory();
+//     let tableHTML = '<table style="border-collapse: collapse; width: 100%; margin: 10px 0; border: 1px solid #ddd;">';
+    
+//     for (let i = 0; i < tableRows; i++) {
+//       tableHTML += '<tr>';
+//       for (let j = 0; j < tableCols; j++) {
+//         const cellStyle = 'border: 1px solid #ddd; padding: 8px; min-width: 50px; min-height: 30px;';
+//         const isHeader = i === 0;
+//         const cellContent = isHeader ? `Header ${j + 1}` : '&nbsp;';
+//         const tag = isHeader ? 'th' : 'td';
+//         tableHTML += `<${tag} style="${cellStyle}${isHeader ? ' font-weight: bold; background-color: #f5f5f5;' : ''}">${cellContent}</${tag}>`;
+//       }
+//       tableHTML += '</tr>';
+//     }
+//     tableHTML += '</table><p><br></p>';
+    
+//     document.execCommand('insertHTML', false, tableHTML);
+//     setIsTableModalOpen(false);
+    
+//     setTimeout(() => {
+//       if (editorRef.current) {
+//         handleContentChange(editorRef.current.innerHTML);
+//       }
+//     }, 10);
+//   }, [saveToHistory, tableRows, tableCols, handleContentChange]);
+
+//   // AI Functions (mock implementations)
+//   const handleAIAction = useCallback(async (action, prompt = '') => {
+//     if (!content && action !== 'generate') {
+//       alert("Document is empty. Nothing to process.");
+//       return;
+//     }
+    
+//     setIsLoading(true);
+//     setLoadingAction(`Processing with AI (${action})...`);
+    
+//     try {
+//       await new Promise(resolve => setTimeout(resolve, 2000));
+      
+//       let result = '';
+//       switch (action) {
+//         case 'translate':
+//           result = `<p><strong>Translation:</strong></p><p>Your content would be translated here...</p>`;
+//           break;
+//         case 'spellcheck':
+//           result = content.replace(/teh/g, 'the').replace(/recieve/g, 'receive');
+//           break;
+//         case 'generate':
+//           result = `<p><strong>AI Generated Content:</strong></p><p>This is AI-generated content based on your prompt: "${prompt}". This would be replaced with actual AI-generated text in a real implementation.</p>`;
+//           break;
+//         case 'review':
+//           alert('AI Review Complete!\n\n✅ Grammar: Excellent\n✅ Clarity: Good\n📝 Suggestions: Consider adding more examples\n⭐ Overall Score: 8.5/10');
+//           return;
+//         default:
+//           result = content;
+//       }
+      
+//       saveToHistory();
+//       const newContent = action === 'generate' ? content + result : result;
+//       handleContentChange(newContent);
+      
+//       if (editorRef.current) {
+//         editorRef.current.innerHTML = newContent;
+//       }
+//     } catch (error) {
+//       alert(`AI ${action} failed. Please try again.`);
+//     } finally {
+//       setIsLoading(false);
+//       setLoadingAction('');
+//     }
+//   }, [content, saveToHistory, handleContentChange]);
+
+//   // Initialize content only once and avoid re-renders during typing
+//   useEffect(() => {
+//     if (editorRef.current && value && value !== content) {
+//       // Only set innerHTML if we're initializing or loading new content
+//       editorRef.current.innerHTML = value;
+//       setContent(value);
+//       updateCounts(value);
+//       if (value) {
+//         saveToHistory(value);
+//       }
+//     }
+//   }, [value]); // Remove content dependency to avoid re-renders
+
+//   // Separate effect for initial setup
+//   useEffect(() => {
+//     if (editorRef.current && !content && !value) {
+//       // Initialize empty editor
+//       editorRef.current.innerHTML = '';
+//     }
+//   }, []); // Only run once on mount
+
+//   // Style object for editor scaling
+//   const editorStyle = useMemo(() => ({
+//     fontFamily: fontFamily,
+//     fontSize: `${fontSize}px`,
+//     lineHeight: '1.6',
+//     color: '#333',
+//     minHeight: '600px',
+//     padding: '40px',
+//     wordWrap: 'break-word',
+//     overflowWrap: 'break-word',
+//     cursor: isPreviewMode ? 'default' : 'text',
+//     transform: `scale(${zoomLevel / 100})`,
+//     transformOrigin: 'top left',
+//     width: `${10000 / zoomLevel}%`
+//   }), [fontFamily, fontSize, isPreviewMode, zoomLevel]);
+
+//   return (
+//     <div className="h-screen flex flex-col border border-gray-300 rounded-lg overflow-hidden bg-white shadow-lg">
+//       {/* Loading Overlay */}
+//       {isLoading && (
+//         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+//           <div className="bg-white p-6 rounded-lg shadow-xl flex items-center space-x-3">
+//             <Loader className="h-5 w-5 animate-spin text-blue-600" />
+//             <span className="text-lg">{loadingAction}</span>
+//           </div>
+//         </div>
+//       )}
+
+//       {/* Main Toolbar */}
+//       <div className="border-b border-gray-200 p-3 bg-gray-50">
+//         <div className="flex flex-wrap items-center gap-1">
+//           {/* File Operations */}
+//           <div className="flex items-center border-r border-gray-300 pr-2 mr-2">
+//             <input
+//               ref={fileInputRef}
+//               type="file"
+//               onChange={handleFileChange}
+//               accept=".html,.txt"
+//               className="hidden"
+//             />
+//             <button
+//               onClick={handleOpenFile}
+//               className="p-2 hover:bg-gray-200 rounded transition-colors"
+//               title="Open File"
+//             >
+//               <Upload className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={handleSave}
+//               className="p-2 hover:bg-gray-200 rounded transition-colors"
+//               title="Save (Ctrl+S)"
+//             >
+//               <Save className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={handleDownloadHTML}
+//               className="p-2 hover:bg-gray-200 rounded transition-colors"
+//               title="Download HTML"
+//             >
+//               <Download className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={handleDownloadPDF}
+//               disabled={isLoading}
+//               className="p-2 hover:bg-gray-200 rounded transition-colors disabled:opacity-50"
+//               title="Save as PDF (uses browser print)"
+//             >
+//               <FileText className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={handlePrint}
+//               className="p-2 hover:bg-gray-200 rounded transition-colors"
+//               title="Print"
+//             >
+//               <Printer className="h-4 w-4" />
+//             </button>
+//           </div>
+
+//           {/* Undo/Redo */}
+//           <div className="flex items-center border-r border-gray-300 pr-2 mr-2">
+//             <button
+//               onClick={handleUndo}
+//               disabled={undoStack.length === 0}
+//               className="p-2 hover:bg-gray-200 rounded transition-colors disabled:opacity-50"
+//               title="Undo (Ctrl+Z)"
+//             >
+//               <Undo className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={handleRedo}
+//               disabled={redoStack.length === 0}
+//               className="p-2 hover:bg-gray-200 rounded transition-colors disabled:opacity-50"
+//               title="Redo (Ctrl+Y)"
+//             >
+//               <Redo className="h-4 w-4" />
+//             </button>
+//           </div>
+
+//           {/* Font Settings */}
+//           <div className="flex items-center border-r border-gray-300 pr-2 mr-2 gap-1">
+//             <select
+//               value=""
+//               onChange={(e) => {
+//                 const newFont = e.target.value;
+//                 if (newFont) {
+//                   // Check if there's a selection before applying
+//                   const selection = window.getSelection();
+//                   if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+//                     formatText('fontName', newFont);
+//                   } else {
+//                     setFontFamily(newFont);
+//                   }
+//                   e.target.value = '';
+//                 }
+//               }}
+//               className="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+//               title="Font Family"
+//             >
+//               <option value="">Font</option>
+//               <option value="Times New Roman">Times New Roman</option>
+//               <option value="Arial">Arial</option>
+//               <option value="Georgia">Georgia</option>
+//               <option value="Helvetica">Helvetica</option>
+//               <option value="Verdana">Verdana</option>
+//               <option value="Courier New">Courier New</option>
+//             </select>
+            
+//             <div className="flex items-center border border-gray-300 rounded">
+//               <button
+//                 onClick={() => {
+//                   const selection = window.getSelection();
+//                   if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+//                     // Get current font size from selection if possible
+//                     const range = selection.getRangeAt(0);
+//                     const parentElement = range.commonAncestorContainer.parentElement;
+//                     const computedStyle = window.getComputedStyle(parentElement);
+//                     const currentSize = parseInt(computedStyle.fontSize) || fontSize;
+//                     const newSize = Math.max(8, Math.min(72, currentSize - 1));
+//                     formatText('fontSize', newSize);
+//                   } else {
+//                     const newSize = Math.max(8, Math.min(72, fontSize - 1));
+//                     setFontSize(newSize);
+//                   }
+//                 }}
+//                 className="p-1 hover:bg-gray-200"
+//               >
+//                 <Minus className="h-3 w-3" />
+//               </button>
+//               <input
+//                 type="number"
+//                 value={fontSize}
+//                 onChange={(e) => {
+//                   const newSize = Math.max(8, Math.min(72, parseInt(e.target.value) || 14));
+//                   const selection = window.getSelection();
+//                   if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+//                     formatText('fontSize', newSize);
+//                   } else {
+//                     setFontSize(newSize);
+//                   }
+//                 }}
+//                 className="w-12 text-center text-sm border-0"
+//                 min="8"
+//                 max="72"
+//               />
+//               <button
+//                 onClick={() => {
+//                   const selection = window.getSelection();
+//                   if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+//                     // Get current font size from selection if possible
+//                     const range = selection.getRangeAt(0);
+//                     const parentElement = range.commonAncestorContainer.parentElement;
+//                     const computedStyle = window.getComputedStyle(parentElement);
+//                     const currentSize = parseInt(computedStyle.fontSize) || fontSize;
+//                     const newSize = Math.max(8, Math.min(72, currentSize + 1));
+//                     formatText('fontSize', newSize);
+//                   } else {
+//                     const newSize = Math.max(8, Math.min(72, fontSize + 1));
+//                     setFontSize(newSize);
+//                   }
+//                 }}
+//                 className="p-1 hover:bg-gray-200"
+//               >
+//                 <Plus className="h-3 w-3" />
+//               </button>
+//             </div>
+//           </div>
+
+//           {/* Text Formatting */}
+//           <div className="flex items-center border-r border-gray-300 pr-2 mr-2">
+//             <button
+//               onClick={() => formatText('bold')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Bold (Ctrl+B)"
+//             >
+//               <Bold className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => formatText('italic')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Italic (Ctrl+I)"
+//             >
+//               <Italic className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => formatText('underline')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Underline (Ctrl+U)"
+//             >
+//               <Underline className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => formatText('strikeThrough')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Strikethrough"
+//             >
+//               <Strikethrough className="h-4 w-4" />
+//             </button>
+//           </div>
+
+//           {/* Colors */}
+//           <div className="flex items-center border-r border-gray-300 pr-2 mr-2">
+//             <input
+//               type="color"
+//               value={textColor}
+//               onChange={(e) => {
+//                 setTextColor(e.target.value);
+//                 formatText('foreColor', e.target.value);
+//               }}
+//               className="w-8 h-8 border border-gray-300 rounded cursor-pointer"
+//               title="Text Color"
+//             />
+//             <input
+//               type="color"
+//               value={backgroundColor}
+//               onChange={(e) => {
+//                 setBackgroundColor(e.target.value);
+//                 formatText('hiliteColor', e.target.value);
+//               }}
+//               className="w-8 h-8 border border-gray-300 rounded cursor-pointer ml-1"
+//               title="Highlight Color"
+//             />
+//           </div>
+
+//           {/* Alignment */}
+//           <div className="flex items-center border-r border-gray-300 pr-2 mr-2">
+//             <button
+//               onClick={() => formatText('justifyLeft')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Align Left"
+//             >
+//               <AlignLeft className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => formatText('justifyCenter')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Align Center"
+//             >
+//               <AlignCenter className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => formatText('justifyRight')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Align Right"
+//             >
+//               <AlignRight className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => formatText('justifyFull')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Justify"
+//             >
+//               <AlignJustify className="h-4 w-4" />
+//             </button>
+//           </div>
+
+//           {/* Lists */}
+//           <div className="flex items-center border-r border-gray-300 pr-2 mr-2">
+//             <button
+//               onClick={() => formatText('insertUnorderedList')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Bullet List"
+//             >
+//               <List className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => formatText('insertOrderedList')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Numbered List"
+//             >
+//               <ListOrdered className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => formatText('indent')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Increase Indent"
+//             >
+//               <Indent className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => formatText('outdent')}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Decrease Indent"
+//             >
+//               <Outdent className="h-4 w-4" />
+//             </button>
+//           </div>
+
+//           {/* Insert Elements */}
+//           <div className="flex items-center border-r border-gray-300 pr-2 mr-2">
+//             <button
+//               onClick={() => setIsLinkModalOpen(true)}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Insert Link"
+//             >
+//               <Link className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={insertImage}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Insert Image"
+//             >
+//               <Image className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => setIsTableModalOpen(true)}
+//               className="p-2 hover:bg-gray-200 rounded"
+//               title="Insert Table"
+//             >
+//               <Table className="h-4 w-4" />
+//             </button>
+//           </div>
+
+//           {/* AI Features */}
+//           <div className="flex items-center">
+//             <button
+//               onClick={() => handleAIAction('translate')}
+//               disabled={isLoading}
+//               className="p-2 hover:bg-gray-200 rounded disabled:opacity-50"
+//               title="Translate"
+//             >
+//               <Languages className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => handleAIAction('spellcheck')}
+//               disabled={isLoading}
+//               className="p-2 hover:bg-gray-200 rounded disabled:opacity-50"
+//               title="Spell Check"
+//             >
+//               <SpellCheck className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => {
+//                 const prompt = window.prompt('Enter a prompt for content generation:');
+//                 if (prompt) handleAIAction('generate', prompt);
+//               }}
+//               disabled={isLoading}
+//               className="p-2 hover:bg-gray-200 rounded disabled:opacity-50"
+//               title="Generate Content"
+//             >
+//               <Sparkles className="h-4 w-4" />
+//             </button>
+//             <button
+//               onClick={() => handleAIAction('review')}
+//               disabled={isLoading}
+//               className="p-2 hover:bg-gray-200 rounded disabled:opacity-50"
+//               title="AI Review"
+//             >
+//               <MessageSquare className="h-4 w-4" />
+//             </button>
+//           </div>
+//         </div>
+//       </div>
+
+//       {/* Secondary Toolbar */}
+//       <div className="border-b border-gray-200 p-2 bg-gray-100">
+//         <div className="flex items-center justify-between">
+//           <div className="flex items-center space-x-4">
+//             <div className="flex items-center space-x-2">
+//               <span className="text-sm font-medium">Zoom:</span>
+//               <select
+//                 value={zoomLevel}
+//                 onChange={(e) => setZoomLevel(parseInt(e.target.value))}
+//                 className="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+//               >
+//                 <option value={50}>50%</option>
+//                 <option value={75}>75%</option>
+//                 <option value={100}>100%</option>
+//                 <option value={125}>125%</option>
+//                 <option value={150}>150%</option>
+//                 <option value={200}>200%</option>
+//               </select>
+//             </div>
+            
+//             <div className="flex items-center space-x-2">
+//               <span className="text-sm font-medium">Style:</span>
+//               <select
+//                 onChange={(e) => {
+//                   if (e.target.value) {
+//                     formatText('formatBlock', e.target.value);
+//                     e.target.value = '';
+//                   }
+//                 }}
+//                 className="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+//                 defaultValue=""
+//               >
+//                 <option value="">Normal</option>
+//                 <option value="h1">Heading 1</option>
+//                 <option value="h2">Heading 2</option>
+//                 <option value="h3">Heading 3</option>
+//                 <option value="h4">Heading 4</option>
+//                 <option value="h5">Heading 5</option>
+//                 <option value="h6">Heading 6</option>
+//                 <option value="p">Paragraph</option>
+//                 <option value="blockquote">Quote</option>
+//                 <option value="pre">Code Block</option>
+//               </select>
+//             </div>
+
+//             <button
+//               onClick={() => setIsPreviewMode(!isPreviewMode)}
+//               className="flex items-center space-x-1 px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+//             >
+//               {isPreviewMode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+//               <span className="text-sm">{isPreviewMode ? 'Edit' : 'Preview'}</span>
+//             </button>
+//           </div>
+          
+//           <div className="flex items-center space-x-4">
+//             <span className="text-sm text-gray-600">Words: {wordCount}</span>
+//             <span className="text-sm text-gray-600">Characters: {charCount}</span>
+//             {selectedText && (
+//               <span className="text-sm text-blue-600">Selected: {selectedText.length} chars</span>
+//             )}
+//             {isModified && (
+//               <div className="flex items-center space-x-1">
+//                 <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+//                 <span className="text-sm text-orange-600">Modified</span>
+//               </div>
+//             )}
+//             {!isModified && (
+//               <div className="flex items-center space-x-1">
+//                 <div className="w-2 h-2 rounded-full bg-green-500"></div>
+//                 <span className="text-sm text-green-600">Saved</span>
+//               </div>
+//             )}
+//           </div>
+//         </div>
+//       </div>
+
+//       {/* Editor Area */}
+//       <div className="flex-1 overflow-hidden">
+//         <div className="h-full overflow-y-auto bg-gray-100 p-4">
+//           <div className="max-w-4xl mx-auto">
+//             <div 
+//               className="bg-white shadow-xl border border-gray-300 rounded-lg overflow-hidden"
+//               style={{
+//                 transform: `scale(${zoomLevel / 100})`,
+//                 transformOrigin: 'top center',
+//                 marginBottom: zoomLevel < 100 ? `${(100 - zoomLevel) * 5}px` : '0'
+//               }}
+//             >
+//               <div
+//                 ref={editorRef}
+//                 contentEditable={!isPreviewMode}
+//                 onInput={(e) => {
+//                   // Handle input without losing focus or cursor position
+//                   const newContent = e.target.innerHTML;
+//                   handleContentChange(newContent);
+//                 }}
+//                 onMouseUp={handleSelectionChange}
+//                 onKeyUp={handleSelectionChange}
+//                 onKeyDown={handleKeyDown}
+//                 onPaste={handlePaste}
+//                 suppressContentEditableWarning={true}
+//                 className={`focus:outline-none w-full ${isPreviewMode ? 'pointer-events-none' : ''}`}
+//                 style={editorStyle}
+//                 data-placeholder={placeholder}
+//               />
+//             </div>
+//           </div>
+//         </div>
+//       </div>
+
+//       {/* Link Modal */}
+//       {isLinkModalOpen && (
+//         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+//           <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+//             <h3 className="text-lg font-semibold mb-4">Insert Link</h3>
+//             <div className="mb-4">
+//               <label className="block text-sm font-medium mb-2">Selected text:</label>
+//               <div className="bg-gray-100 p-2 rounded text-sm">
+//                 {selectedText || 'No text selected - link text will be the URL'}
+//               </div>
+//             </div>
+//             <input
+//               type="url"
+//               value={linkUrl}
+//               onChange={(e) => setLinkUrl(e.target.value)}
+//               onKeyDown={(e) => e.key === 'Enter' && insertLink()}
+//               placeholder="Enter URL (https://...)"
+//               className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+//               autoFocus
+//             />
+//             <div className="flex space-x-3">
+//               <button
+//                 onClick={insertLink}
+//                 disabled={!linkUrl}
+//                 className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+//               >
+//                 Insert Link
+//               </button>
+//               <button
+//                 onClick={() => {
+//                   setIsLinkModalOpen(false);
+//                   setLinkUrl('');
+//                 }}
+//                 className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
+//               >
+//                 Cancel
+//               </button>
+//             </div>
+//           </div>
+//         </div>
+//       )}
+
+//       {/* Table Modal */}
+//       {isTableModalOpen && (
+//         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+//           <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+//             <h3 className="text-lg font-semibold mb-4">Insert Table</h3>
+//             <div className="mb-4">
+//               <label className="block text-sm font-medium mb-2">Rows:</label>
+//               <input
+//                 type="number"
+//                 value={tableRows}
+//                 onChange={(e) => setTableRows(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+//                 min="1"
+//                 max="20"
+//                 className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+//               />
+//             </div>
+//             <div className="mb-4">
+//               <label className="block text-sm font-medium mb-2">Columns:</label>
+//               <input
+//                 type="number"
+//                 value={tableCols}
+//                 onChange={(e) => setTableCols(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+//                 min="1"
+//                 max="10"
+//                 className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+//               />
+//             </div>
+//             <div className="mb-4 p-3 bg-gray-100 rounded">
+//               <p className="text-sm text-gray-600">Preview: {tableRows} × {tableCols} table with headers</p>
+//             </div>
+//             <div className="flex space-x-3">
+//               <button
+//                 onClick={insertTable}
+//                 className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+//               >
+//                 Insert Table
+//               </button>
+//               <button
+//                 onClick={() => setIsTableModalOpen(false)}
+//                 className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
+//               >
+//                 Cancel
+//               </button>
+//             </div>
+//           </div>
+//         </div>
+//       )}
+
+//       {/* Status Bar */}
+//       <div className="border-t border-gray-200 p-3 bg-gray-50 text-sm text-gray-600">
+//         <div className="flex justify-between items-center">
+//           <div className="flex items-center space-x-4">
+//             <span><span className="font-medium">User:</span> {userId}</span>
+//             <span><span className="font-medium">Mode:</span> {isPreviewMode ? 'Preview' : 'Edit'}</span>
+//             <span><span className="font-medium">Font:</span> {fontFamily}, {fontSize}px</span>
+//           </div>
+//           <div className="flex items-center space-x-4">
+//             <span>Zoom: {zoomLevel}%</span>
+//             <span>Selection: {selectedText ? `${selectedText.length} chars` : 'None'}</span>
+//             <span>Status: {isModified ? 'Modified' : 'Saved'}</span>
+//           </div>
+//         </div>
+//       </div>
+
+//       {/* Custom Styles */}
+//       <style jsx>{`
+//         [contenteditable="true"]:empty:before {
+//           content: attr(data-placeholder);
+//           color: #9ca3af;
+//           font-style: italic;
+//           pointer-events: none;
+//         }
+//         [contenteditable="true"]:focus:before {
+//           content: none;
+//         }
+//         [contenteditable="true"] ol,
+//         [contenteditable="true"] ul {
+//           list-style-position: inside;
+//           margin-left: 1.5em;
+//         }
+//         [contenteditable="true"] ol {
+//           list-style-type: decimal;
+//         }
+//         [contenteditable="true"] ul {
+//           list-style-type: disc;
+//         }
+//         [contenteditable="true"] li {
+//           margin-bottom: 0.5em;
+//         }
+//         [contenteditable="true"] h1 {
+//           font-size: 2em;
+//           font-weight: bold;
+//           margin: 0.67em 0;
+//         }
+//         [contenteditable="true"] h2 {
+//           font-size: 1.5em;
+//           font-weight: bold;
+//           margin: 0.75em 0;
+//         }
+//         [contenteditable="true"] h3 {
+//           font-size: 1.17em;
+//           font-weight: bold;
+//           margin: 0.83em 0;
+//         }
+//         [contenteditable="true"] h4 {
+//           font-size: 1em;
+//           font-weight: bold;
+//           margin: 1em 0;
+//         }
+//         [contenteditable="true"] h5 {
+//           font-size: 0.83em;
+//           font-weight: bold;
+//           margin: 1.17em 0;
+//         }
+//         [contenteditable="true"] h6 {
+//           font-size: 0.75em;
+//           font-weight: bold;
+//           margin: 1.33em 0;
+//         }
+//         [contenteditable="true"] blockquote {
+//           margin: 1em 0;
+//           padding-left: 1em;
+//           border-left: 4px solid #ddd;
+//           color: #666;
+//           font-style: italic;
+//         }
+//         [contenteditable="true"] pre {
+//           font-family: 'Courier New', monospace;
+//           background-color: #f5f5f5;
+//           padding: 1em;
+//           border-radius: 4px;
+//           overflow-x: auto;
+//           white-space: pre-wrap;
+//         }
+//         [contenteditable="true"] table {
+//           border-collapse: collapse;
+//           width: 100%;
+//           margin: 1em 0;
+//         }
+//         [contenteditable="true"] table td,
+//         [contenteditable="true"] table th {
+//           border: 1px solid #ddd;
+//           padding: 8px;
+//           text-align: left;
+//         }
+//         [contenteditable="true"] table th {
+//           background-color: #f2f2f2;
+//           font-weight: bold;
+//         }
+//         [contenteditable="true"] a {
+//           color: #0066cc;
+//           text-decoration: underline;
+//         }
+//         [contenteditable="true"] a:hover {
+//           color: #0052a3;
+//         }
+//         [contenteditable="true"] img {
+//           max-width: 100%;
+//           height: auto;
+//           display: block;
+//           margin: 10px auto;
+//         }
+//       `}</style>
+//     </div>
+//   );
+// };
+
+// export default RichTextEditor;
+
+
 // import React, { useState, useRef, useEffect, useCallback, createRef } from 'react';
 // import html2canvas from 'html2canvas';
 // import jsPDF from 'jspdf';
